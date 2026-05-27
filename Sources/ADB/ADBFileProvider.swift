@@ -11,8 +11,12 @@ class ADBFileProvider: FileProvider {
     }
 
     func listFiles(at path: String) async throws -> [AndroidFile] {
-        // Run: adb -s <serial> shell ls -la <path>
-        let output = try await runADB(args: ["-s", device.serial, "shell", "ls", "-la", path])
+        // Use a trailing slash for directories to ensure symlinks are followed by ls
+        let targetPath = (path.hasSuffix("/") || path.isEmpty) ? path : "\(path)/"
+        print("ADB: Listing files at \(path) (using \(targetPath))")
+        
+        let output = try await runADB(args: ["-s", device.serial, "shell", "ls", "-la", targetPath])
+        // print("ADB: Raw output length: \(output.count)")
         return parseLSOutput(output, parentPath: path)
     }
 
@@ -100,12 +104,27 @@ class ADBFileProvider: FileProvider {
         let lines = output.components(separatedBy: .newlines)
         
         for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty || trimmed.hasPrefix("total ") { continue }
+            
             let parts = line.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-            // Typical line: drwxrwx--x 15 root sdcard_rw 4096 2023-01-01 12:00 Alarms
+            // Expected format: [perms] [links] [owner] [group] [size] [date] [time] [name...]
             if parts.count >= 8 {
                 let permissions = parts[0]
                 let isDirectory = permissions.hasPrefix("d")
-                let name = parts.suffix(from: 7).joined(separator: " ")
+                let isSymlink = permissions.hasPrefix("l")
+                
+                // Filename starts at index 7.
+                // If it's a symlink, the part will be "name -> target"
+                var nameParts = Array(parts.suffix(from: 7))
+                var name = nameParts.joined(separator: " ")
+                
+                if isSymlink {
+                    // Extract name before " -> "
+                    if let arrowIndex = nameParts.firstIndex(of: "->") {
+                        name = nameParts[0..<arrowIndex].joined(separator: " ")
+                    }
+                }
                 
                 if name == "." || name == ".." { continue }
 
@@ -118,9 +137,9 @@ class ADBFileProvider: FileProvider {
                     id: UUID().uuidString,
                     name: name,
                     path: filePath,
-                    isDirectory: isDirectory,
+                    isDirectory: isDirectory || isSymlink, // Treat symlinks as directories for navigation if they point to one (simplified)
                     size: size,
-                    modificationDate: nil // Parsing date is more complex, skipping for now
+                    modificationDate: nil
                 ))
             }
         }
