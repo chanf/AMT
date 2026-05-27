@@ -1,4 +1,5 @@
 import SwiftUI
+import AVKit
 
 struct FilePreviewPane: View {
     let file: AndroidFile?
@@ -13,9 +14,11 @@ struct FilePreviewPane: View {
             if let file = file {
                 ScrollView {
                     VStack(spacing: 20) {
-                        // Icon or Image
+                        // Icon or Image/Video
                         if file.isImage {
                             imagePreviewSection(for: file)
+                        } else if file.isVideo {
+                            videoPreviewSection(for: file)
                         } else {
                             Image(systemName: file.isDirectory ? "folder.fill" : "doc.fill")
                                 .font(.system(size: 80))
@@ -105,6 +108,35 @@ struct FilePreviewPane: View {
             }
         }
     }
+
+    @ViewBuilder
+    private func videoPreviewSection(for file: AndroidFile) -> some View {
+        ZStack {
+            if isLoading {
+                VStack {
+                    ProgressView()
+                    Text("正在拉取视频...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .frame(height: 200)
+            } else if let url = previewURL {
+                VideoPlayer(player: AVPlayer(url: url))
+                    .frame(height: 200)
+                    .cornerRadius(8)
+                    .padding()
+            } else if let error = errorMessage {
+                VStack {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.largeTitle)
+                        .foregroundColor(.orange)
+                    Text(error)
+                        .font(.caption)
+                }
+                .frame(height: 200)
+            }
+        }
+    }
     
     private func infoRow(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -121,32 +153,37 @@ struct FilePreviewPane: View {
         previewURL = nil
         errorMessage = nil
         
-        guard let file = file, file.isImage, let provider = provider else { return }
+        guard let file = file, (file.isImage || file.isVideo), let provider = provider else { return }
         
         print("PreviewPane: Starting load for \(file.name)")
         isLoading = true
         Task {
             do {
                 if let url = try await provider.fetchPreviewData(for: file) {
-                    let data = try Data(contentsOf: url)
-                    print("PreviewPane: Read \(data.count) bytes from local temp file")
-                    
-                    if let nsImage = NSImage(data: data) {
-                        print("PreviewPane: NSImage created from data. Size: \(nsImage.size)")
+                    if file.isImage {
+                        let data = try Data(contentsOf: url)
+                        print("PreviewPane: Read \(data.count) bytes from local temp file")
+                        
+                        if let _ = NSImage(data: data) {
+                            await MainActor.run {
+                                self.previewURL = url
+                                self.isLoading = false
+                            }
+                        } else {
+                            await MainActor.run {
+                                self.errorMessage = "图片格式不支持"
+                                self.isLoading = false
+                            }
+                        }
+                    } else if file.isVideo {
                         await MainActor.run {
                             self.previewURL = url
-                            self.isLoading = false
-                        }
-                    } else {
-                        print("PreviewPane: FAILED to create NSImage from data")
-                        await MainActor.run {
-                            self.errorMessage = "图片格式不支持"
                             self.isLoading = false
                         }
                     }
                 } else {
                     await MainActor.run {
-                        self.errorMessage = "无法从手机拉取图片"
+                        self.errorMessage = "无法从手机拉取文件"
                         self.isLoading = false
                     }
                 }

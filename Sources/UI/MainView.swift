@@ -17,7 +17,7 @@ struct MainView: View {
                     FileBrowserView(device: device, externalTargetPath: $targetPath, selectedFile: $selectedFile)
                         .id(device.id)
                     
-                    if let file = selectedFile, file.isImage {
+                    if let file = selectedFile, (file.isImage || file.isVideo) {
                         Divider()
                         FilePreviewPane(file: file, provider: getProvider(for: device))
                             .frame(width: 300)

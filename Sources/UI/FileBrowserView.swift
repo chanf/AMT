@@ -84,7 +84,7 @@ struct FileBrowserView: View {
                             if file.isDirectory {
                                 selectedFile = nil
                                 navigate(to: file.path)
-                            } else if file.isImage {
+                            } else if file.isImage || file.isVideo {
                                 selectedFile = file
                             } else {
                                 selectedFile = nil

@@ -31,4 +31,10 @@ struct AndroidFile: Identifiable, Hashable {
         let ext = (name as NSString).pathExtension.lowercased()
         return imageExtensions.contains(ext)
     }
+
+    var isVideo: Bool {
+        let videoExtensions = ["mp4", "m4v", "mov", "avi", "mkv", "webm"]
+        let ext = (name as NSString).pathExtension.lowercased()
+        return videoExtensions.contains(ext)
+    }
 }
