@@ -28,6 +28,14 @@ struct FileBrowserView: View {
                     }
                 }
                 Spacer()
+
+                if device.connectionType == .adb {
+                    Button(action: launchScrcpy) {
+                        Label("屏幕镜像", systemImage: "display")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
+                }
             }
             .padding()
             .background(Color(NSColor.controlBackgroundColor))
@@ -126,6 +134,22 @@ struct FileBrowserView: View {
 
     func copyToMac(file: AndroidFile) {
         transferManager.copyToLocal(file: file, provider: getProvider())
+    }
+
+    func launchScrcpy() {
+        let serial = device.serial
+        DispatchQueue.global(qos: .userInitiated).async {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            // Ensure common Homebrew paths are included
+            let command = "export PATH=$PATH:/opt/homebrew/bin:/usr/local/bin; scrcpy -s \(serial)"
+            process.arguments = ["-c", command]
+            do {
+                try process.run()
+            } catch {
+                print("Failed to launch scrcpy: \(error)")
+            }
+        }
     }
 
     func navigate(to path: String) {
