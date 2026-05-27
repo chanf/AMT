@@ -47,4 +47,5 @@ struct AndroidFile: Identifiable, Hashable {
 struct AndroidApp: Identifiable, Hashable {
     var id: String { packageName }
     let packageName: String
+    var name: String? = nil
 }

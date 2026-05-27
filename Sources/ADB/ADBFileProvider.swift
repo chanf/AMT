@@ -3,11 +3,13 @@ import Foundation
 class ADBFileProvider: FileProvider {
     let device: AndroidDevice
     private let adbPath: String
+    private let aaptPath: String
 
     init(device: AndroidDevice) {
         self.device = device
         // Try common locations or use 'which adb' logic
         self.adbPath = "/opt/homebrew/bin/adb" 
+        self.aaptPath = "/Users/feng/opt/android-sdk/build-tools/35.0.1/aapt"
     }
 
     func listFiles(at path: String) async throws -> [AndroidFile] {
@@ -90,7 +92,59 @@ class ADBFileProvider: FileProvider {
         _ = try await runADB(args: ["-s", device.serial, "shell", "pm", "uninstall", packageName])
     }
 
+    func fetchAppName(packageName: String) async throws -> String? {
+        // 1. Get APK path on device
+        let pathOutput = try await runADB(args: ["-s", device.serial, "shell", "pm", "path", packageName])
+        guard let remotePath = pathOutput.components(separatedBy: ":").last?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return nil
+        }
+        
+        // 2. Pull base.apk to a temp location
+        let localTempAPK = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(packageName).apk")
+        _ = try await runADB(args: ["-s", device.serial, "pull", remotePath, localTempAPK.path])
+        
+        defer {
+            try? FileManager.default.removeItem(at: localTempAPK)
+        }
+        
+        // 3. Run local aapt to get the label
+        let aaptOutput = try await runLocalCommand(executable: aaptPath, args: ["dump", "badging", localTempAPK.path])
+        
+        for line in aaptOutput.components(separatedBy: .newlines) {
+            if line.contains("application-label:") {
+                let parts = line.components(separatedBy: ":")
+                if parts.count >= 2 {
+                    return parts[1].trimmingCharacters(in: .whitespaces)
+                        .replacingOccurrences(of: "'", with: "")
+                }
+            }
+        }
+        return nil
+    }
+
     // MARK: - Helper Methods
+
+    private func runLocalCommand(executable: String, args: [String]) async throws -> String {
+        return try await withCheckedThrowingContinuation { continuation in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: executable)
+            process.arguments = args
+            let outputPipe = Pipe()
+            process.standardOutput = outputPipe
+            do {
+                try process.run()
+                let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                if let output = String(data: data, encoding: .utf8) {
+                    continuation.resume(returning: output)
+                } else {
+                    continuation.resume(throwing: NSError(domain: "LocalCommandError", code: 1))
+                }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
 
     private func runADB(args: [String]) async throws -> String {
         return try await withCheckedThrowingContinuation { continuation in

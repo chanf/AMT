@@ -13,7 +13,10 @@ struct AppManagerView: View {
         if searchText.isEmpty {
             return apps
         } else {
-            return apps.filter { $0.packageName.localizedCaseInsensitiveContains(searchText) }
+            return apps.filter { 
+                $0.packageName.localizedCaseInsensitiveContains(searchText) || 
+                ($0.name?.localizedCaseInsensitiveContains(searchText) ?? false)
+            }
         }
     }
 
@@ -43,34 +46,36 @@ struct AppManagerView: View {
                 ProgressView("正在加载应用列表...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(filteredApps) { app in
-                    HStack {
-                        Image(systemName: "app.dashed")
-                            .font(.title2)
-                            .foregroundColor(.secondary)
-                        
-                        VStack(alignment: .leading) {
-                            Text(app.packageName)
-                                .font(.body)
+                Table(filteredApps) {
+                    TableColumn("应用名称") { app in
+                        HStack {
+                            Image(systemName: "app.dashed")
+                                .foregroundColor(.secondary)
+                            Text(app.name ?? "正在查询...")
+                                .foregroundColor(app.name == nil ? .secondary : .primary)
                         }
-                        
-                        Spacer()
-                        
+                    }
+                    TableColumn("包名") { app in
+                        Text(app.packageName)
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+                    TableColumn("操作") { app in
                         Button(role: .destructive) {
                             uninstall(app: app)
                         } label: {
                             Text("卸载")
+                                .foregroundColor(.red)
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.plain)
                     }
-                    .padding(.vertical, 4)
+                    .width(60)
                 }
-                .listStyle(.inset)
             }
         }
         .navigationTitle("\(device.model) - 应用")
         .onAppear(perform: refresh)
-        .searchable(text: $searchText, prompt: "搜索包名...")
+        .searchable(text: $searchText, prompt: "搜索应用名称或包名...")
     }
 
     func refresh() {
@@ -82,6 +87,30 @@ struct AppManagerView: View {
                 await MainActor.run {
                     self.apps = fetchedApps
                     self.isLoading = false
+                }
+                
+                // Lazy fetch app names in background
+                for i in 0..<fetchedApps.count {
+                    let pkg = fetchedApps[i].packageName
+                    // Add a small delay to avoid overwhelming the ADB process
+                    if i > 0 && i % 5 == 0 { try? await Task.sleep(nanoseconds: 100_000_000) }
+                    
+                    if let name = try? await provider.fetchAppName(packageName: pkg) {
+                        await MainActor.run {
+                            if let currentIndex = self.apps.firstIndex(where: { $0.packageName == pkg }) {
+                                self.apps[currentIndex].name = name
+                            }
+                        }
+                    } else {
+                        // If still not found, mark it so we don't show "querying" forever
+                        await MainActor.run {
+                            if let currentIndex = self.apps.firstIndex(where: { $0.packageName == pkg }) {
+                                if self.apps[currentIndex].name == nil {
+                                    self.apps[currentIndex].name = pkg // Fallback
+                                }
+                            }
+                        }
+                    }
                 }
             } catch {
                 await MainActor.run {

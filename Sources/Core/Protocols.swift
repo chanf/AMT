@@ -15,6 +15,7 @@ protocol FileProvider {
     func installAPK(at path: String) async throws
     func listApps() async throws -> [AndroidApp]
     func uninstallApp(packageName: String) async throws
+    func fetchAppName(packageName: String) async throws -> String?
 }
 
 /// Manages device connection state and discovery.
