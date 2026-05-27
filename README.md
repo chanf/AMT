@@ -1,52 +1,73 @@
-# macOS 安卓文件管理器 (AndroidFile)
+# macOS 安卓手机助理 (Android Mobile Tool - AMT)
 
-一款专为 macOS 设计的原生安卓文件管理工具，支持通过 USB 线连接手机后浏览、拷贝文件。
+一款专为 macOS 设计的全能原生安卓设备管理工具。它不仅仅是一个文件管理器，更是一个集成了应用管理、多媒体预览、屏幕镜像和快速传输的安卓助手。
 
-## 功能特性
+## 🚀 核心特性
 
-- **双协议支持**: 同时支持 ADB (开发人员模式) 和 MTP (标准文件传输) 协议。
-- **原生体验**: 使用 Swift 和 SwiftUI 构建，拥有类访达 (Finder) 的操作体验。
-- **实时进度**: 支持大文件传输，并在界面上实时显示传输进度。
-- **设备信息**: 自动识别连接的手机型号、连接方式及序列号。
+### 1. 桌面级文件管理
+- **双协议支持**: 完美兼容 **ADB** (调试模式) 和 **MTP** (标准文件传输) 协议。
+- **原生体验**: 纯 Swift & SwiftUI 构建，支持 macOS 标准的 **Shift 连选**和 **Command 点选**，配以原生的浅蓝色选中高亮。
+- **极速传输**: 支持从 Mac 访达直接 **拖拽上传** 到手机，以及右键批量下载到本地。
+- **智能导航**: 侧边栏一键直达相册、下载等常用目录，深度适配安卓软链接路径。
 
-## 快速开始
+### 2. 全能多媒体预览 (无须导出)
+- **图片**: 实时渲染高清大图预览。
+- **视频**: 内置原生播放器，支持 **比例自适应** 展示（适配横竖屏视频）。
+- **音频**: 专属音乐播放 UI，支持 mp3, flac 等主流音频预览。
+- **文本**: 支持 json, log, txt, md 等等宽字体预览，具备 512KB 安全读取保护。
+
+### 3. 高级应用管理 (APK Manager)
+- **智能解析**: 集成 AAPT 引擎，自动将包名转化为**真实的中文应用名称**。
+- **图标提取**: 自动从 APK 包中实时提取并显示**原生应用图标**。
+- **一键装卸**: 支持双击 APK 安装（已适配 Android 13+ 权限策略）以及一键物理卸载应用。
+- **极致性能**: 引入本地持久化缓存和并行加载技术，应用列表秒开展示。
+
+### 4. 开发者利器
+- **屏幕镜像**: 深度集成 `scrcpy`，ADB 模式下支持一键开启实时高清投屏。
+- **设备详情**: 实时展示手机型号、序列号及连接状态。
+
+---
+
+## 🛠️ 快速开始
 
 ### 前置条件
 
-1. **安装 ADB**: 建议通过 Homebrew 安装：
+1. **基础工具**:
    ```bash
-   brew install android-platform-tools
+   brew install android-platform-tools scrcpy
    ```
-2. **安装 libmtp** (可选): 若需使用 MTP 功能：
-   ```bash
-   brew install libmtp
-   ```
+2. **增强功能** (推荐):
+   为了能解析应用名称和图标，请确保已安装 Android SDK (aapt 工具)。
 
 ### 构建与运行
 
-项目支持命令行构建：
-
-1. **赋予脚本执行权限**:
+1. **克隆仓库**:
+   ```bash
+   git clone git@github.com:chanf/AMT.git
+   cd AMT
+   ```
+2. **构建应用**:
    ```bash
    chmod +x build_app.sh
-   ```
-2. **构建应用包**:
-   ```bash
    ./build_app.sh
    ```
-3. **启动应用**:
+3. **启动**:
    ```bash
    open AndroidFile.app
    ```
 
-## 技术架构
+---
 
-- **前端**: SwiftUI (NavigationSplitView)
-- **核心**: 统一的 `FileProvider` 抽象层
-- **底层**: 
-  - ADB: 调用 `adb` 命令行工具
-  - MTP: 桥接 `libmtp` C 库
+## 🏗️ 技术架构
 
-## 开发计划
+- **UI 框架**: SwiftUI (NavigationSplitView) + AppKit (AVPlayerView 封装)
+- **通信核心**: 基于 `Process` 封装的高性能异步 ADB 指令集
+- **资源解析**: 集成 `aapt` 元数据解析与 `unzip` 资源提取技术
+- **状态管理**: 响应式数据流设计，支持并发任务管理与竞态取消
 
-详见 [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md)。
+---
+
+## 📖 详细文档
+
+- [产品设计文档 (PRD)](./PRODUCT_DESIGN_DOCUMENT.md)
+- [实施计划](./IMPLEMENTATION_PLAN.md)
