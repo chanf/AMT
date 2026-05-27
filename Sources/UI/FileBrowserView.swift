@@ -1,10 +1,37 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+struct FileRow: View {
+    let file: AndroidFile
+    var progress: Double?
+
+    var body: some View {
+        HStack {
+            Image(systemName: file.isDirectory ? "folder.fill" : "doc.fill")
+                .foregroundColor(file.isDirectory ? .blue : .secondary)
+            VStack(alignment: .leading) {
+                Text(file.name)
+                if !file.isDirectory {
+                    Text(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            Spacer()
+            if let p = progress {
+                ProgressView(value: p)
+                    .frame(width: 50)
+            }
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+    }
+}
+
 struct FileBrowserView: View {
     let device: AndroidDevice
     @Binding var externalTargetPath: String?
-    @Binding var selectedFile: AndroidFile?
+    @Binding var selectedFileIDs: Set<String>
     
     @State private var files: [AndroidFile] = []
     @State private var currentPath: String = "/sdcard"
@@ -12,139 +39,45 @@ struct FileBrowserView: View {
     @State private var searchText = ""
     @State private var isDropTargeted = false
     @State private var message: String? = nil
+    @State private var previewFile: AndroidFile? = nil
 
     @StateObject var transferManager = TransferManager.shared
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Device Info Header
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(device.model)
-                        .font(.headline)
-                    HStack(spacing: 12) {
-                        Label(device.connectionType.rawValue.uppercased(), systemImage: "cable.connector")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                        Label("S/N: \(device.serial)", systemImage: "number")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                Spacer()
-
-                if device.connectionType == .adb {
-                    Button(action: launchScrcpy) {
-                        Label("屏幕镜像", systemImage: "display")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.regular)
-                }
-            }
-            .padding()
-            .background(Color(NSColor.controlBackgroundColor))
-            
-            Divider()
-
-            // Toolbar
-            HStack {
-                Button(action: goUp) {
-                    Image(systemName: "chevron.left")
-                }
-                .disabled(currentPath == "/")
-
-                Text(currentPath)
-                    .font(.callout)
-                    .padding(.horizontal, 8)
-                    .background(Color.secondary.opacity(0.1))
-                    .cornerRadius(4)
-
-                Spacer()
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                // Device Info Header
+                headerView
                 
-                if let msg = message {
-                    Text(msg)
-                        .font(.caption)
-                        .foregroundColor(.blue)
-                }
+                Divider()
 
-                if !transferManager.activeTransfers.isEmpty {
-                    Text("Transferring...")
-                        .font(.caption)
-                        .foregroundColor(.blue)
-                }
+                // Toolbar
+                toolbarView
 
-                Button(action: refresh) {
-                    Image(systemName: "arrow.clockwise")
+                Divider()
+
+                if isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    fileListView
                 }
             }
-            .padding()
-            .background(.ultraThinMaterial)
+            .contentShape(Rectangle())
+            .overlay(dropOverlay)
+            .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
+                handleDrop(providers: providers)
+                return true
+            }
 
-            if isLoading {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List(files) { file in
-                    FileRow(file: file, progress: transferManager.activeTransfers[file.path])
-                        .contentShape(Rectangle())
-                        .onTapGesture(count: 2) {
-                            if file.isDirectory {
-                                selectedFile = nil
-                                navigate(to: file.path)
-                            } else if file.isAPK {
-                                installAPK(file: file)
-                            } else if file.isImage || file.isVideo {
-                                selectedFile = file
-                            } else {
-                                selectedFile = nil
-                            }
-                        }
-                        .contextMenu {
-                            if file.isAPK {
-                                Button {
-                                    installAPK(file: file)
-                                } label: {
-                                    Label("安装 APK", systemImage: "arrow.down.app")
-                                }
-                            }
-                            if !file.isDirectory {
-                                Button {
-                                    copyToMac(file: file)
-                                } label: {
-                                    Label("Copy to Mac", systemImage: "square.and.arrow.down")
-                                }
-                            }
-                            Button(role: .destructive) {
-                                deleteFile(file: file)
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                        }
-                }
-                .listStyle(.inset)
+            // Integrated Preview Pane
+            if let preview = previewFile {
+                Divider()
+                FilePreviewPane(file: preview, provider: getProvider())
+                    .frame(width: 300)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .animation(.spring(), value: preview.id)
             }
-        }
-        .contentShape(Rectangle()) // Make the whole VStack tappable/droppable
-        .overlay(
-            Group {
-                if isDropTargeted {
-                    ZStack {
-                        Color.accentColor.opacity(0.15)
-                        VStack {
-                            Image(systemName: "square.and.arrow.up")
-                                .font(.system(size: 50))
-                            Text("拖拽至此上传到当前目录")
-                                .font(.headline)
-                        }
-                        .foregroundColor(.accentColor)
-                    }
-                    .allowsHitTesting(false)
-                }
-            }
-        )
-        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
-            handleDrop(providers: providers)
-            return true
         }
         .navigationTitle(device.model)
         .onAppear(perform: refresh)
@@ -154,6 +87,154 @@ struct FileBrowserView: View {
                 navigate(to: path)
                 externalTargetPath = nil
             }
+        }
+        .onChange(of: selectedFileIDs) { ids in
+            if let current = previewFile, !ids.contains(current.id) {
+                previewFile = nil
+            }
+        }
+    }
+
+    // MARK: - Subviews
+
+    private var headerView: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(device.model)
+                    .font(.headline)
+                HStack(spacing: 12) {
+                    Label(device.connectionType.rawValue.uppercased(), systemImage: "cable.connector")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    Label("S/N: \(device.serial)", systemImage: "number")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            Spacer()
+            if device.connectionType == .adb {
+                Button(action: launchScrcpy) {
+                    Label("屏幕镜像", systemImage: "display")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding()
+        .background(Color(NSColor.controlBackgroundColor))
+    }
+
+    private var toolbarView: some View {
+        HStack {
+            Button(action: goUp) {
+                Image(systemName: "chevron.left")
+            }
+            .disabled(currentPath == "/")
+
+            Text(currentPath)
+                .font(.callout)
+                .padding(.horizontal, 8)
+                .background(Color.secondary.opacity(0.1))
+                .cornerRadius(4)
+
+            Spacer()
+            
+            if let msg = message {
+                Text(msg).font(.caption).foregroundColor(.blue)
+            }
+
+            if !transferManager.activeTransfers.isEmpty {
+                Text("Transferring...").font(.caption).foregroundColor(.blue)
+            }
+
+            Button(action: refresh) {
+                Image(systemName: "arrow.clockwise")
+            }
+        }
+        .padding(8)
+        .background(.ultraThinMaterial)
+    }
+
+    private var fileListView: some View {
+        List {
+            ForEach(files) { file in
+                Button(action: {
+                    let flags = NSEvent.modifierFlags
+                    if flags.contains(.command) {
+                        if selectedFileIDs.contains(file.id) {
+                            selectedFileIDs.remove(file.id)
+                        } else {
+                            selectedFileIDs.insert(file.id)
+                        }
+                    } else {
+                        selectedFileIDs = [file.id]
+                    }
+                }) {
+                    FileRow(file: file, progress: transferManager.activeTransfers[file.path])
+                        .padding(.horizontal, 8)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .listRowBackground(
+                    selectedFileIDs.contains(file.id) ? 
+                    Color.blue.opacity(0.15) : 
+                    Color.clear
+                )
+                .listRowInsets(EdgeInsets())
+                .simultaneousGesture(TapGesture(count: 2).onEnded {
+                    handleDoubleTap(file: file)
+                })
+                .contextMenu {
+                    contextMenuContent(for: file)
+                }
+            }
+        }
+        .listStyle(.inset)
+    }
+
+    @ViewBuilder
+    private func contextMenuContent(for file: AndroidFile) -> some View {
+        if file.isAPK {
+            Button { installAPK(file: file) } label: {
+                Label("安装 APK", systemImage: "arrow.down.app")
+            }
+        }
+        if !file.isDirectory {
+            Button { copyToMac(file: file) } label: {
+                Label("Copy to Mac", systemImage: "square.and.arrow.down")
+            }
+        }
+        Button(role: .destructive) { deleteFile(file: file) } label: {
+            Label("Delete", systemImage: "trash")
+        }
+    }
+
+    private var dropOverlay: some View {
+        Group {
+            if isDropTargeted {
+                ZStack {
+                    Color.accentColor.opacity(0.15)
+                    VStack {
+                        Image(systemName: "square.and.arrow.up").font(.system(size: 50))
+                        Text("拖拽至此上传到当前目录").font(.headline)
+                    }
+                    .foregroundColor(.accentColor)
+                }
+                .allowsHitTesting(false)
+            }
+        }
+    }
+
+    // MARK: - Actions
+
+    private func handleDoubleTap(file: AndroidFile) {
+        if file.isDirectory {
+            selectedFileIDs.removeAll()
+            previewFile = nil
+            navigate(to: file.path)
+        } else if file.isAPK {
+            installAPK(file: file)
+        } else if file.isImage || file.isVideo {
+            previewFile = file
         }
     }
 
@@ -191,15 +272,12 @@ struct FileBrowserView: View {
                 try await provider.installAPK(at: file.path)
                 await MainActor.run {
                     self.message = "安装成功"
-                    // Clear message after 3 seconds
                     DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                         if self.message == "安装成功" { self.message = nil }
                     }
                 }
             } catch {
-                await MainActor.run {
-                    self.message = "安装失败: \(error.localizedDescription)"
-                }
+                await MainActor.run { self.message = "安装失败: \(error.localizedDescription)" }
             }
         }
     }
@@ -209,52 +287,24 @@ struct FileBrowserView: View {
         Task {
             do {
                 try await provider.delete(at: file.path)
-                await MainActor.run {
-                    self.refresh()
-                }
-            } catch {
-                print("Delete failed: \(error)")
-            }
+                await MainActor.run { self.refresh() }
+            } catch { print("Delete failed: \(error)") }
         }
     }
 
     func handleDrop(providers: [NSItemProvider]) {
-        print("Drop: Received \(providers.count) providers")
         let group = DispatchGroup()
         var urls: [URL] = []
-        
         for provider in providers {
-            print("Drop: Provider types: \(provider.registeredTypeIdentifiers)")
             group.enter()
-            
-            // Try loading as URL object first
             provider.loadObject(ofClass: URL.self) { url, error in
-                if let url = url {
-                    print("Drop: Successfully loaded URL: \(url.path)")
-                    urls.append(url)
-                } else {
-                    print("Drop: Failed to load as URL: \(String(describing: error))")
-                    
-                    // Fallback: try loading data representation of fileURL
-                    provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
-                        if let url = item as? URL {
-                            print("Drop: Fallback loaded URL: \(url.path)")
-                            urls.append(url)
-                        } else if let data = item as? Data, let path = String(data: data, encoding: .utf8), let url = URL(string: path) {
-                            print("Drop: Fallback loaded from data: \(url.path)")
-                            urls.append(url)
-                        }
-                    }
-                }
+                if let url = url { urls.append(url) }
                 group.leave()
             }
         }
-        
         group.notify(queue: .main) {
-            print("Drop: Total URLs collected: \(urls.count)")
             if !urls.isEmpty {
                 transferManager.uploadToDevice(localURLs: urls, remotePath: currentPath, provider: getProvider()) {
-                    print("Drop: Upload sequence completed")
                     self.refresh()
                 }
             }
@@ -266,18 +316,14 @@ struct FileBrowserView: View {
         DispatchQueue.global(qos: .userInitiated).async {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/bash")
-            // Ensure common Homebrew paths are included
             let command = "export PATH=$PATH:/opt/homebrew/bin:/usr/local/bin; scrcpy -s \(serial)"
             process.arguments = ["-c", command]
-            do {
-                try process.run()
-            } catch {
-                print("Failed to launch scrcpy: \(error)")
-            }
+            try? process.run()
         }
     }
 
     func navigate(to path: String) {
+        previewFile = nil
         currentPath = path
         refresh()
     }
@@ -289,32 +335,5 @@ struct FileBrowserView: View {
             if currentPath == "" { currentPath = "/" }
             refresh()
         }
-    }
-}
-
-struct FileRow: View {
-    let file: AndroidFile
-    var progress: Double?
-
-    var body: some View {
-        HStack {
-            Image(systemName: file.isDirectory ? "folder.fill" : "doc.fill")
-                .foregroundColor(file.isDirectory ? .blue : .secondary)
-            VStack(alignment: .leading) {
-                Text(file.name)
-                if !file.isDirectory {
-                    Text(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-            Spacer()
-            if let p = progress {
-                ProgressView(value: p)
-                    .frame(width: 50)
-            }
-        }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
     }
 }

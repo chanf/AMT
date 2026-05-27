@@ -8,8 +8,8 @@ enum ViewMode {
 struct MainView: View {
     @StateObject var deviceManager = UnifiedDeviceManager()
     @State private var selectedDevice: AndroidDevice?
-    @State private var selectedFile: AndroidFile? = nil
-    @State private var selectedApp: AndroidApp? = nil
+    @State private var selectedFileIDs = Set<String>()
+    @State private var selectedAppIDs = Set<String>()
     @State private var targetPath: String? = nil
     @State private var viewMode: ViewMode = .fileBrowser
     @State private var navigationPath = [String]() // Breadcrumbs
@@ -21,36 +21,16 @@ struct MainView: View {
         } detail: {
             if let device = selectedDevice {
                 HStack(spacing: 0) {
-                    Group {
-                        if viewMode == .fileBrowser {
-                            FileBrowserView(device: device, externalTargetPath: $targetPath, selectedFile: $selectedFile)
-                                .id(device.id)
-                        } else {
-                            if let provider = getProvider(for: device) {
-                                AppManagerView(device: device, provider: provider, selectedApp: $selectedApp)
-                                    .id("\(device.id)-apps")
-                            }
+                    if viewMode == .fileBrowser {
+                        FileBrowserView(device: device, externalTargetPath: $targetPath, selectedFileIDs: $selectedFileIDs)
+                            .id(device.id)
+                    } else {
+                        if let provider = getProvider(for: device) {
+                            AppManagerView(device: device, provider: provider, selectedAppIDs: $selectedAppIDs)
+                                .id("\(device.id)-apps")
                         }
-                    }
-                    
-                    if viewMode == .fileBrowser, let file = selectedFile, (file.isImage || file.isVideo) {
-                        Divider()
-                        FilePreviewPane(file: file, provider: getProvider(for: device))
-                            .frame(width: 300)
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
-                    }
-
-                    if viewMode == .appManager, let app = selectedApp {
-                        Divider()
-                        AppDetailPane(app: app, provider: getProvider(for: device)) {
-                            uninstall(app: app, device: device)
-                        }
-                        .frame(width: 300)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }
-                .animation(.spring(), value: selectedFile)
-                .animation(.spring(), value: selectedApp)
                 .animation(.default, value: viewMode)
             } else {
                 VStack(spacing: 20) {
@@ -68,8 +48,8 @@ struct MainView: View {
             deviceManager.startDiscovery()
         }
         .onChange(of: selectedDevice) { _ in
-            selectedFile = nil
-            selectedApp = nil
+            selectedFileIDs.removeAll()
+            selectedAppIDs.removeAll()
         }
     }
     
@@ -79,21 +59,6 @@ struct MainView: View {
             return ADBFileProvider(device: device)
         } else {
             return MTPFileProvider(device: device)
-        }
-    }
-
-    private func uninstall(app: AndroidApp, device: AndroidDevice) {
-        guard let provider = getProvider(for: device) else { return }
-        Task {
-            do {
-                try await provider.uninstallApp(packageName: app.packageName)
-                await MainActor.run {
-                    self.selectedApp = nil
-                    // Note: Ideally we'd trigger a refresh in AppManagerView here.
-                }
-            } catch {
-                print("Uninstall failed: \(error)")
-            }
         }
     }
 }

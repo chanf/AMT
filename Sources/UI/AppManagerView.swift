@@ -3,7 +3,7 @@ import SwiftUI
 struct AppManagerView: View {
     let device: AndroidDevice
     let provider: FileProvider
-    @Binding var selectedApp: AndroidApp?
+    @Binding var selectedAppIDs: Set<String>
     
     @State private var apps: [AndroidApp] = []
     @State private var isLoading = false
@@ -21,56 +21,97 @@ struct AppManagerView: View {
         }
     }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                Text("应用管理")
-                    .font(.headline)
-                Spacer()
-                if let msg = message {
-                    Text(msg)
-                        .font(.caption)
-                        .foregroundColor(.blue)
-                        .transition(.opacity)
-                }
-                Button(action: refresh) {
-                    Image(systemName: "arrow.clockwise")
-                }
-            }
-            .padding()
-            .background(Color(NSColor.controlBackgroundColor))
-            
-            Divider()
+    var primarySelectedApp: AndroidApp? {
+        if let firstID = selectedAppIDs.first {
+            return apps.first(where: { $0.packageName == firstID })
+        }
+        return nil
+    }
 
-            if isLoading {
-                ProgressView("正在加载应用列表...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List {
-                    Section {
-                        ForEach(0..<filteredApps.count, id: \.self) { index in
-                            let app = filteredApps[index]
-                            HStack {
-                                Image(systemName: "app.dashed")
-                                    .foregroundColor(.secondary)
-                                Text(app.name ?? app.packageName)
-                                    .fontWeight(.medium)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                            .padding(.vertical, 4)
-                            .onTapGesture(count: 2) {
-                                self.selectedApp = app
-                            }
-                        }
-                    } header: {
-                        Text("应用")
-                            .font(.caption.bold())
-                            .foregroundColor(.secondary)
+    var body: some View {
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                // Header
+                HStack {
+                    Text("应用管理")
+                        .font(.headline)
+                    Spacer()
+                    if let msg = message {
+                        Text(msg)
+                            .font(.caption)
+                            .foregroundColor(.blue)
+                            .transition(.opacity)
+                    }
+                    Button(action: refresh) {
+                        Image(systemName: "arrow.clockwise")
                     }
                 }
-                .listStyle(.inset)
+                .padding()
+                .background(Color(NSColor.controlBackgroundColor))
+                
+                Divider()
+
+                if isLoading {
+                    ProgressView("正在加载应用列表...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List {
+                        Section {
+                            ForEach(0..<filteredApps.count, id: \.self) { index in
+                                let app = filteredApps[index]
+                                Button(action: {
+                                    let flags = NSEvent.modifierFlags
+                                    if flags.contains(.command) {
+                                        if selectedAppIDs.contains(app.packageName) {
+                                            selectedAppIDs.remove(app.packageName)
+                                        } else {
+                                            selectedAppIDs.insert(app.packageName)
+                                        }
+                                    } else {
+                                        selectedAppIDs = [app.packageName]
+                                    }
+                                }) {
+                                    HStack {
+                                        Image(systemName: "app.dashed")
+                                            .foregroundColor(.secondary)
+                                        Text(app.name ?? app.packageName)
+                                            .fontWeight(.medium)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.vertical, 4)
+                                    .padding(.horizontal, 8)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .listRowBackground(
+                                    selectedAppIDs.contains(app.packageName) ? 
+                                    Color.blue.opacity(0.15) : 
+                                    Color.clear
+                                )
+                                .listRowInsets(EdgeInsets())
+                                .simultaneousGesture(TapGesture(count: 2).onEnded {
+                                    self.selectedAppIDs = [app.packageName]
+                                })
+                            }
+                        } header: {
+                            Text("应用")
+                                .font(.caption.bold())
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .listStyle(.inset)
+                }
+            }
+
+            // Integrated Detail Pane
+            if let primary = primarySelectedApp {
+                Divider()
+                AppDetailPane(app: primary, provider: provider) {
+                    uninstall(app: primary)
+                }
+                .frame(width: 300)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .animation(.spring(), value: primary.packageName)
             }
         }
         .navigationTitle("\(device.model) - 应用")
@@ -89,7 +130,6 @@ struct AppManagerView: View {
                     self.isLoading = false
                 }
                 
-                // Concurrent fetch app names (minimal details for list)
                 try await withThrowingTaskGroup(of: (String, String?).self) { group in
                     let maxConcurrentPulls = 3
                     var currentIndex = 0
@@ -98,9 +138,6 @@ struct AppManagerView: View {
                         if currentIndex < fetchedApps.count {
                             let app = fetchedApps[currentIndex]
                             group.addTask {
-                                // For the list, we just want the name. 
-                                // In the future, we could have a fetchAppNameOnly method, 
-                                // but for now, let's reuse fetchAppDetails (it caches name).
                                 let detailed = try? await provider.fetchAppDetails(app: app)
                                 return (app.packageName, detailed?.name)
                             }
@@ -123,6 +160,24 @@ struct AppManagerView: View {
                 await MainActor.run {
                     self.message = "加载失败: \(error.localizedDescription)"
                     self.isLoading = false
+                }
+            }
+        }
+    }
+
+    func uninstall(app: AndroidApp) {
+        message = "正在卸载 \(app.packageName)..."
+        Task {
+            do {
+                try await provider.uninstallApp(packageName: app.packageName)
+                await MainActor.run {
+                    self.message = "卸载成功"
+                    self.selectedAppIDs.remove(app.packageName)
+                    self.refresh()
+                }
+            } catch {
+                await MainActor.run {
+                    self.message = "卸载失败: \(error.localizedDescription)"
                 }
             }
         }
