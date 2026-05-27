@@ -3,6 +3,7 @@ import SwiftUI
 struct FileBrowserView: View {
     let device: AndroidDevice
     @Binding var externalTargetPath: String?
+    @Binding var selectedFile: AndroidFile?
     
     @State private var files: [AndroidFile] = []
     @State private var currentPath: String = "/sdcard"
@@ -74,7 +75,7 @@ struct FileBrowserView: View {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(files) { file in
+                List(files, selection: $selectedFile) { file in
                     FileRow(file: file, progress: transferManager.activeTransfers[file.path])
                         .contextMenu {
                             if !file.isDirectory {
@@ -90,11 +91,12 @@ struct FileBrowserView: View {
                                 Label("Delete", systemImage: "trash")
                             }
                         }
-                        .onTapGesture {
+                        .onTapGesture(count: 2) {
                             if file.isDirectory {
                                 navigate(to: file.path)
                             }
                         }
+                        .tag(file)
                 }
                 .listStyle(.inset)
             }

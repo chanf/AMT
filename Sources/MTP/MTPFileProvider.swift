@@ -33,6 +33,10 @@ class MTPFileProvider: FileProvider {
     func createDirectory(at path: String) async throws {
         // LIBMTP_Create_Folder
     }
+
+    func fetchPreviewData(for file: AndroidFile) async throws -> URL? {
+        return nil
+    }
 }
 
 class MTPDeviceManager: DeviceManager {

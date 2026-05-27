@@ -51,4 +51,7 @@ class MockFileProvider: FileProvider {
 
     func delete(at path: String) async throws {}
     func createDirectory(at path: String) async throws {}
+    func fetchPreviewData(for file: AndroidFile) async throws -> URL? {
+        return nil
+    }
 }

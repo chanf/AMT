@@ -23,6 +23,11 @@ struct AndroidFile: Identifiable, Hashable {
     let modificationDate: Date?
 
     var extensionName: String {
-        return (name as NSString).pathExtension
+        return (name as NSString).pathExtension.lowercased()
+    }
+
+    var isImage: Bool {
+        let imageExtensions = ["jpg", "jpeg", "png", "webp", "gif", "heic", "bmp"]
+        return imageExtensions.contains(extensionName)
     }
 }

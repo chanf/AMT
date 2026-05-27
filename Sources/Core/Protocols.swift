@@ -9,6 +9,7 @@ protocol FileProvider {
     func copyToDevice(localPath: String, remotePath: String, progress: @escaping (Double) -> Void) async throws
     func delete(at path: String) async throws
     func createDirectory(at path: String) async throws
+    func fetchPreviewData(for file: AndroidFile) async throws -> URL?
 }
 
 /// Manages device connection state and discovery.

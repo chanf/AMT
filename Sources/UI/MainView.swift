@@ -3,6 +3,7 @@ import SwiftUI
 struct MainView: View {
     @StateObject var deviceManager = UnifiedDeviceManager()
     @State private var selectedDevice: AndroidDevice?
+    @State private var selectedFile: AndroidFile? = nil
     @State private var targetPath: String? = nil
     @State private var navigationPath = [String]() // Breadcrumbs
 
@@ -10,9 +11,9 @@ struct MainView: View {
         NavigationSplitView {
             DeviceSidebar(selectedDevice: $selectedDevice, targetPath: $targetPath)
                 .environmentObject(deviceManager)
-        } detail: {
+        } content: {
             if let device = selectedDevice {
-                FileBrowserView(device: device, externalTargetPath: $targetPath)
+                FileBrowserView(device: device, externalTargetPath: $targetPath, selectedFile: $selectedFile)
                     .id(device.id)
             } else {
                 VStack(spacing: 20) {
@@ -25,9 +26,23 @@ struct MainView: View {
                     }
                 }
             }
+        } detail: {
+            FilePreviewPane(file: selectedFile, provider: getProvider(for: selectedDevice))
         }
         .onAppear {
             deviceManager.startDiscovery()
+        }
+        .onChange(of: selectedDevice) { _ in
+            selectedFile = nil
+        }
+    }
+    
+    private func getProvider(for device: AndroidDevice?) -> FileProvider? {
+        guard let device = device else { return nil }
+        if device.connectionType == .adb {
+            return ADBFileProvider(device: device)
+        } else {
+            return MTPFileProvider(device: device)
         }
     }
 }

@@ -38,6 +38,14 @@ class ADBFileProvider: FileProvider {
         _ = try await runADB(args: ["-s", device.serial, "shell", "mkdir", "-p", path])
     }
 
+    func fetchPreviewData(for file: AndroidFile) async throws -> URL? {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        let localURL = tempDir.appendingPathComponent(UUID().uuidString).appendingPathExtension(file.extensionName)
+        
+        _ = try await runADB(args: ["-s", device.serial, "pull", file.path, localURL.path])
+        return localURL
+    }
+
     // MARK: - Helper Methods
 
     private func runADB(args: [String]) async throws -> String {
