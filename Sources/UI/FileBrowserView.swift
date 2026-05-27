@@ -255,7 +255,7 @@ struct FileBrowserView: View {
             navigate(to: file.path)
         } else if file.isAPK {
             installAPKs(files: [file])
-        } else if file.isImage || file.isVideo {
+        } else if file.isImage || file.isVideo || file.isText {
             previewFile = file
         }
     }

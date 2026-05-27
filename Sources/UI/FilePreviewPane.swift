@@ -28,6 +28,7 @@ struct FilePreviewPane: View {
     @State private var errorMessage: String? = nil
     @State private var loadingTask: Task<Void, Never>? = nil
     @State private var videoAspectRatio: CGFloat? = nil
+    @State private var textContent: String? = nil
 
     var body: some View {
         VStack {
@@ -40,6 +41,8 @@ struct FilePreviewPane: View {
                                 imagePreviewSection(for: file)
                             } else if file.isVideo {
                                 videoPreviewSection(for: file)
+                            } else if file.isText {
+                                textPreviewSection(for: file)
                             } else {
                                 Image(systemName: file.isDirectory ? "folder.fill" : "doc.fill")
                                     .font(.system(size: 80))
@@ -95,7 +98,7 @@ struct FilePreviewPane: View {
             Image(systemName: "info.circle")
                 .font(.system(size: 48))
                 .foregroundColor(.secondary)
-            Text("双击图片或视频以查看预览")
+            Text("双击图片、视频或文本查看预览")
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -143,6 +146,27 @@ struct FilePreviewPane: View {
             }
         }
     }
+
+    @ViewBuilder
+    private func textPreviewSection(for file: AndroidFile) -> some View {
+        ZStack {
+            if isLoading {
+                ProgressView()
+                    .frame(height: 200)
+            } else if let text = textContent {
+                Text(text)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+                    .background(Color.secondary.opacity(0.05))
+                    .cornerRadius(8)
+            } else if let error = errorMessage {
+                errorView(error)
+                    .frame(height: 200)
+            }
+        }
+        .padding(.horizontal)
+    }
     
     private func errorView(_ message: String) -> some View {
         VStack {
@@ -170,13 +194,14 @@ struct FilePreviewPane: View {
         player = nil
         previewURL = nil
         videoAspectRatio = nil
+        textContent = nil
     }
     
     private func loadPreview(for file: AndroidFile?) {
         cancelLoading()
         errorMessage = nil
         
-        guard let file = file, (file.isImage || file.isVideo), let provider = provider else { return }
+        guard let file = file, (file.isImage || file.isVideo || file.isText), let provider = provider else { return }
         
         isLoading = true
         loadingTask = Task {
@@ -187,7 +212,7 @@ struct FilePreviewPane: View {
                 
                 if Task.isCancelled { return }
                 
-                try await handleLoadedFile(url, isVideo: file.isVideo)
+                try await handleLoadedFile(url, file: file)
             } catch {
                 if !Task.isCancelled {
                     await MainActor.run {
@@ -200,8 +225,8 @@ struct FilePreviewPane: View {
     }
     
     @MainActor
-    private func handleLoadedFile(_ url: URL, isVideo: Bool) async throws {
-        if isVideo {
+    private func handleLoadedFile(_ url: URL, file: AndroidFile) async throws {
+        if file.isVideo {
             let asset = AVAsset(url: url)
             let isPlayable = try await asset.load(.isPlayable)
             if isPlayable {
@@ -222,11 +247,24 @@ struct FilePreviewPane: View {
             } else {
                 self.errorMessage = "视频文件不可播放或格式不支持"
             }
-        } else {
+        } else if file.isImage {
             if let _ = NSImage(contentsOf: url) {
                 self.previewURL = url
             } else {
                 self.errorMessage = "图片解析失败"
+            }
+        } else if file.isText {
+            // Read first 512KB to avoid memory issues
+            let maxReadBytes = 512 * 1024
+            let data = try Data(contentsOf: url)
+            let contentToRead = data.count > maxReadBytes ? data.subdata(in: 0..<maxReadBytes) : data
+            
+            if let text = String(data: contentToRead, encoding: .utf8) {
+                self.textContent = text + (data.count > maxReadBytes ? "\n\n[内容过长，已截断...]" : "")
+            } else if let text = String(data: contentToRead, encoding: .ascii) {
+                self.textContent = text + (data.count > maxReadBytes ? "\n\n[内容过长，已截断...]" : "")
+            } else {
+                self.errorMessage = "文本编码不受支持"
             }
         }
         self.isLoading = false

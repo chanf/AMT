@@ -38,6 +38,12 @@ struct AndroidFile: Identifiable, Hashable {
         return videoExtensions.contains(ext)
     }
 
+    var isText: Bool {
+        let textExtensions = ["txt", "json", "xml", "md", "csv", "log", "swift", "py", "java", "kt", "html", "css", "js", "sh", "yaml", "yml"]
+        let ext = (name as NSString).pathExtension.lowercased()
+        return textExtensions.contains(ext)
+    }
+
     var isAPK: Bool {
         return (name as NSString).pathExtension.lowercased() == "apk"
     }
