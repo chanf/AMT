@@ -42,8 +42,22 @@ class ADBFileProvider: FileProvider {
         let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
         let localURL = tempDir.appendingPathComponent(UUID().uuidString).appendingPathExtension(file.extensionName)
         
-        _ = try await runADB(args: ["-s", device.serial, "pull", file.path, localURL.path])
-        return localURL
+        print("Preview: Pulling \(file.path) to \(localURL.path)")
+        do {
+            let output = try await runADB(args: ["-s", device.serial, "pull", file.path, localURL.path])
+            print("Preview: ADB Output: \(output)")
+            
+            if FileManager.default.fileExists(atPath: localURL.path) {
+                print("Preview: File exists at \(localURL.path)")
+                return localURL
+            } else {
+                print("Preview: File DOES NOT exist at \(localURL.path)")
+                return nil
+            }
+        } catch {
+            print("Preview: ADB Pull Failed: \(error)")
+            throw error
+        }
     }
 
     // MARK: - Helper Methods

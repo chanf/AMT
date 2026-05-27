@@ -123,21 +123,35 @@ struct FilePreviewPane: View {
         
         guard let file = file, file.isImage, let provider = provider else { return }
         
+        print("PreviewPane: Starting load for \(file.name)")
         isLoading = true
         Task {
             do {
                 if let url = try await provider.fetchPreviewData(for: file) {
-                    await MainActor.run {
-                        self.previewURL = url
-                        self.isLoading = false
+                    let data = try Data(contentsOf: url)
+                    print("PreviewPane: Read \(data.count) bytes from local temp file")
+                    
+                    if let nsImage = NSImage(data: data) {
+                        print("PreviewPane: NSImage created from data. Size: \(nsImage.size)")
+                        await MainActor.run {
+                            self.previewURL = url
+                            self.isLoading = false
+                        }
+                    } else {
+                        print("PreviewPane: FAILED to create NSImage from data")
+                        await MainActor.run {
+                            self.errorMessage = "图片格式不支持"
+                            self.isLoading = false
+                        }
                     }
                 } else {
                     await MainActor.run {
-                        self.errorMessage = "无法加载预览"
+                        self.errorMessage = "无法从手机拉取图片"
                         self.isLoading = false
                     }
                 }
             } catch {
+                print("PreviewPane: Task Failed: \(error)")
                 await MainActor.run {
                     self.errorMessage = "加载失败: \(error.localizedDescription)"
                     self.isLoading = false

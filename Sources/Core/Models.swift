@@ -27,7 +27,8 @@ struct AndroidFile: Identifiable, Hashable {
     }
 
     var isImage: Bool {
-        let imageExtensions = ["jpg", "jpeg", "png", "webp", "gif", "heic", "bmp"]
-        return imageExtensions.contains(extensionName)
+        let imageExtensions = ["jpg", "jpeg", "png", "webp", "gif", "heic", "bmp", "tiff", "tif"]
+        let ext = (name as NSString).pathExtension.lowercased()
+        return imageExtensions.contains(ext)
     }
 }

@@ -78,6 +78,16 @@ struct FileBrowserView: View {
                 List(files) { file in
                     FileRow(file: file, progress: transferManager.activeTransfers[file.path])
                         .contentShape(Rectangle())
+                        .onTapGesture(count: 2) {
+                            if file.isDirectory {
+                                selectedFile = nil
+                                navigate(to: file.path)
+                            } else if file.isImage {
+                                selectedFile = file
+                            } else {
+                                selectedFile = nil
+                            }
+                        }
                         .contextMenu {
                             if !file.isDirectory {
                                 Button {
@@ -90,16 +100,6 @@ struct FileBrowserView: View {
                                 // delete implementation
                             } label: {
                                 Label("Delete", systemImage: "trash")
-                            }
-                        }
-                        .onTapGesture(count: 2) {
-                            if file.isDirectory {
-                                selectedFile = nil
-                                navigate(to: file.path)
-                            } else if file.isImage {
-                                selectedFile = file
-                            } else {
-                                selectedFile = nil
                             }
                         }
                 }
