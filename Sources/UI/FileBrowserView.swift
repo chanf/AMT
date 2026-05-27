@@ -99,7 +99,7 @@ struct FileBrowserView: View {
                                 }
                             }
                             Button(role: .destructive) {
-                                // delete implementation
+                                deleteFile(file: file)
                             } label: {
                                 Label("Delete", systemImage: "trash")
                             }
@@ -165,6 +165,20 @@ struct FileBrowserView: View {
 
     func copyToMac(file: AndroidFile) {
         transferManager.copyToLocal(file: file, provider: getProvider())
+    }
+
+    func deleteFile(file: AndroidFile) {
+        let provider = getProvider()
+        Task {
+            do {
+                try await provider.delete(at: file.path)
+                await MainActor.run {
+                    self.refresh()
+                }
+            } catch {
+                print("Delete failed: \(error)")
+            }
+        }
     }
 
     func handleDrop(providers: [NSItemProvider]) {
