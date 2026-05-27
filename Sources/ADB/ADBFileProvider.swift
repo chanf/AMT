@@ -64,6 +64,32 @@ class ADBFileProvider: FileProvider {
         }
     }
 
+    func installAPK(at path: String) async throws {
+        // Run: adb -s <serial> shell pm install -r <path>
+        _ = try await runADB(args: ["-s", device.serial, "shell", "pm", "install", "-r", path])
+    }
+
+    func listApps() async throws -> [AndroidApp] {
+        // Run: adb -s <serial> shell pm list packages -3 (third party only)
+        let output = try await runADB(args: ["-s", device.serial, "shell", "pm", "list", "packages", "-3"])
+        let lines = output.components(separatedBy: .newlines)
+        var apps: [AndroidApp] = []
+        for line in lines {
+            if line.hasPrefix("package:") {
+                let packageName = line.replacingOccurrences(of: "package:", with: "")
+                if !packageName.isEmpty {
+                    apps.append(AndroidApp(packageName: packageName))
+                }
+            }
+        }
+        return apps
+    }
+
+    func uninstallApp(packageName: String) async throws {
+        // Run: adb -s <serial> shell pm uninstall <packageName>
+        _ = try await runADB(args: ["-s", device.serial, "shell", "pm", "uninstall", packageName])
+    }
+
     // MARK: - Helper Methods
 
     private func runADB(args: [String]) async throws -> String {

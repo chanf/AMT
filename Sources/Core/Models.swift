@@ -37,4 +37,14 @@ struct AndroidFile: Identifiable, Hashable {
         let ext = (name as NSString).pathExtension.lowercased()
         return videoExtensions.contains(ext)
     }
+
+    var isAPK: Bool {
+        return (name as NSString).pathExtension.lowercased() == "apk"
+    }
+}
+
+/// Represents an installed application on an Android device.
+struct AndroidApp: Identifiable, Hashable {
+    var id: String { packageName }
+    let packageName: String
 }

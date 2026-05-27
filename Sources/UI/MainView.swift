@@ -1,23 +1,38 @@
 import SwiftUI
 
+enum ViewMode {
+    case fileBrowser
+    case appManager
+}
+
 struct MainView: View {
     @StateObject var deviceManager = UnifiedDeviceManager()
     @State private var selectedDevice: AndroidDevice?
     @State private var selectedFile: AndroidFile? = nil
     @State private var targetPath: String? = nil
+    @State private var viewMode: ViewMode = .fileBrowser
     @State private var navigationPath = [String]() // Breadcrumbs
 
     var body: some View {
         NavigationSplitView {
-            DeviceSidebar(selectedDevice: $selectedDevice, targetPath: $targetPath)
+            DeviceSidebar(selectedDevice: $selectedDevice, targetPath: $targetPath, viewMode: $viewMode)
                 .environmentObject(deviceManager)
         } detail: {
             if let device = selectedDevice {
                 HStack(spacing: 0) {
-                    FileBrowserView(device: device, externalTargetPath: $targetPath, selectedFile: $selectedFile)
-                        .id(device.id)
+                    Group {
+                        if viewMode == .fileBrowser {
+                            FileBrowserView(device: device, externalTargetPath: $targetPath, selectedFile: $selectedFile)
+                                .id(device.id)
+                        } else {
+                            if let provider = getProvider(for: device) {
+                                AppManagerView(device: device, provider: provider)
+                                    .id("\(device.id)-apps")
+                            }
+                        }
+                    }
                     
-                    if let file = selectedFile, (file.isImage || file.isVideo) {
+                    if viewMode == .fileBrowser, let file = selectedFile, (file.isImage || file.isVideo) {
                         Divider()
                         FilePreviewPane(file: file, provider: getProvider(for: device))
                             .frame(width: 300)
@@ -25,6 +40,7 @@ struct MainView: View {
                     }
                 }
                 .animation(.spring(), value: selectedFile)
+                .animation(.default, value: viewMode)
             } else {
                 VStack(spacing: 20) {
                     AppIcon(size: 100)
@@ -42,6 +58,8 @@ struct MainView: View {
         }
         .onChange(of: selectedDevice) { _ in
             selectedFile = nil
+            // Reset to file browser when switching devices? 
+            // Or keep it. Let's keep it but ensure view refreshes.
         }
     }
     
@@ -59,6 +77,7 @@ struct DeviceSidebar: View {
     @EnvironmentObject var deviceManager: UnifiedDeviceManager
     @Binding var selectedDevice: AndroidDevice?
     @Binding var targetPath: String?
+    @Binding var viewMode: ViewMode
 
     var body: some View {
         List(selection: $selectedDevice) {
@@ -97,6 +116,7 @@ struct DeviceSidebar: View {
             if selectedDevice != nil {
                 Section("快捷连接") {
                     Button {
+                        viewMode = .fileBrowser
                         targetPath = "/sdcard/DCIM"
                     } label: {
                         Label("相册", systemImage: "photo.on.rectangle")
@@ -104,6 +124,7 @@ struct DeviceSidebar: View {
                     .buttonStyle(.plain)
 
                     Button {
+                        viewMode = .fileBrowser
                         targetPath = "/sdcard/Download"
                     } label: {
                         Label("下载", systemImage: "arrow.down.circle")
@@ -111,9 +132,19 @@ struct DeviceSidebar: View {
                     .buttonStyle(.plain)
 
                     Button {
+                        viewMode = .fileBrowser
                         targetPath = "/sdcard"
                     } label: {
                         Label("内部存储", systemImage: "internaldrive")
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Section("应用管理") {
+                    Button {
+                        viewMode = .appManager
+                    } label: {
+                        Label("应用列表", systemImage: "apps.iphone.badge.plus")
                     }
                     .buttonStyle(.plain)
                 }
@@ -123,4 +154,3 @@ struct DeviceSidebar: View {
         .listStyle(.sidebar)
     }
 }
-

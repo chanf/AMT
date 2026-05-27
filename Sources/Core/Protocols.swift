@@ -10,6 +10,11 @@ protocol FileProvider {
     func delete(at path: String) async throws
     func createDirectory(at path: String) async throws
     func fetchPreviewData(for file: AndroidFile) async throws -> URL?
+    
+    // APK/App Management
+    func installAPK(at path: String) async throws
+    func listApps() async throws -> [AndroidApp]
+    func uninstallApp(packageName: String) async throws
 }
 
 /// Manages device connection state and discovery.

@@ -37,6 +37,10 @@ class MTPFileProvider: FileProvider {
     func fetchPreviewData(for file: AndroidFile) async throws -> URL? {
         return nil
     }
+
+    func installAPK(at path: String) async throws {}
+    func listApps() async throws -> [AndroidApp] { return [] }
+    func uninstallApp(packageName: String) async throws {}
 }
 
 class MTPDeviceManager: DeviceManager {

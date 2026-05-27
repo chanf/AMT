@@ -11,6 +11,7 @@ struct FileBrowserView: View {
     @State private var isLoading = false
     @State private var searchText = ""
     @State private var isDropTargeted = false
+    @State private var message: String? = nil
 
     @StateObject var transferManager = TransferManager.shared
 
@@ -60,6 +61,12 @@ struct FileBrowserView: View {
 
                 Spacer()
                 
+                if let msg = message {
+                    Text(msg)
+                        .font(.caption)
+                        .foregroundColor(.blue)
+                }
+
                 if !transferManager.activeTransfers.isEmpty {
                     Text("Transferring...")
                         .font(.caption)
@@ -84,6 +91,8 @@ struct FileBrowserView: View {
                             if file.isDirectory {
                                 selectedFile = nil
                                 navigate(to: file.path)
+                            } else if file.isAPK {
+                                installAPK(file: file)
                             } else if file.isImage || file.isVideo {
                                 selectedFile = file
                             } else {
@@ -91,6 +100,13 @@ struct FileBrowserView: View {
                             }
                         }
                         .contextMenu {
+                            if file.isAPK {
+                                Button {
+                                    installAPK(file: file)
+                                } label: {
+                                    Label("安装 APK", systemImage: "arrow.down.app")
+                                }
+                            }
                             if !file.isDirectory {
                                 Button {
                                     copyToMac(file: file)
@@ -165,6 +181,27 @@ struct FileBrowserView: View {
 
     func copyToMac(file: AndroidFile) {
         transferManager.copyToLocal(file: file, provider: getProvider())
+    }
+
+    func installAPK(file: AndroidFile) {
+        message = "正在安装 \(file.name)..."
+        let provider = getProvider()
+        Task {
+            do {
+                try await provider.installAPK(at: file.path)
+                await MainActor.run {
+                    self.message = "安装成功"
+                    // Clear message after 3 seconds
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                        if self.message == "安装成功" { self.message = nil }
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.message = "安装失败: \(error.localizedDescription)"
+                }
+            }
+        }
     }
 
     func deleteFile(file: AndroidFile) {

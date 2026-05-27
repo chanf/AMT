@@ -54,4 +54,14 @@ class MockFileProvider: FileProvider {
     func fetchPreviewData(for file: AndroidFile) async throws -> URL? {
         return nil
     }
+
+    func installAPK(at path: String) async throws {}
+    func listApps() async throws -> [AndroidApp] {
+        return [
+            AndroidApp(packageName: "com.example.app1"),
+            AndroidApp(packageName: "com.example.app2"),
+            AndroidApp(packageName: "com.android.chrome")
+        ]
+    }
+    func uninstallApp(packageName: String) async throws {}
 }
