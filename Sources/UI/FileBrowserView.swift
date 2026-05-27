@@ -40,6 +40,7 @@ struct FileBrowserView: View {
     @State private var isDropTargeted = false
     @State private var message: String? = nil
     @State private var previewFile: AndroidFile? = nil
+    @State private var lastSelectedFileID: String? = nil
 
     @StateObject var transferManager = TransferManager.shared
 
@@ -158,16 +159,7 @@ struct FileBrowserView: View {
         List {
             ForEach(files) { file in
                 Button(action: {
-                    let flags = NSEvent.modifierFlags
-                    if flags.contains(.command) {
-                        if selectedFileIDs.contains(file.id) {
-                            selectedFileIDs.remove(file.id)
-                        } else {
-                            selectedFileIDs.insert(file.id)
-                        }
-                    } else {
-                        selectedFileIDs = [file.id]
-                    }
+                    handleSelection(for: file)
                 }) {
                     FileRow(file: file, progress: transferManager.activeTransfers[file.path])
                         .padding(.horizontal, 8)
@@ -193,18 +185,23 @@ struct FileBrowserView: View {
 
     @ViewBuilder
     private func contextMenuContent(for file: AndroidFile) -> some View {
-        if file.isAPK {
-            Button { installAPK(file: file) } label: {
-                Label("安装 APK", systemImage: "arrow.down.app")
+        let targets = (selectedFileIDs.contains(file.id) && selectedFileIDs.count > 1) 
+            ? files.filter { selectedFileIDs.contains($0.id) } 
+            : [file]
+
+        let allAPKs = !targets.isEmpty && targets.allSatisfy { $0.isAPK }
+        if allAPKs {
+            Button { installAPKs(files: targets) } label: {
+                Label(targets.count > 1 ? "安装 \(targets.count) 个 APK" : "安装 APK", systemImage: "arrow.down.app")
             }
         }
-        if !file.isDirectory {
-            Button { copyToMac(file: file) } label: {
-                Label("Copy to Mac", systemImage: "square.and.arrow.down")
-            }
+        
+        Button { copyToMac(files: targets) } label: {
+            Label(targets.count > 1 ? "下载 \(targets.count) 个项目" : "下载到 Mac", systemImage: "square.and.arrow.down")
         }
-        Button(role: .destructive) { deleteFile(file: file) } label: {
-            Label("Delete", systemImage: "trash")
+        
+        Button(role: .destructive) { deleteFiles(files: targets) } label: {
+            Label(targets.count > 1 ? "删除 \(targets.count) 个项目" : "删除", systemImage: "trash")
         }
     }
 
@@ -226,13 +223,38 @@ struct FileBrowserView: View {
 
     // MARK: - Actions
 
+    private func handleSelection(for file: AndroidFile) {
+        let flags = NSEvent.modifierFlags
+        if flags.contains(.shift), let lastID = lastSelectedFileID {
+            // Range selection
+            if let startIndex = files.firstIndex(where: { $0.id == lastID }),
+               let endIndex = files.firstIndex(where: { $0.id == file.id }) {
+                let start = min(startIndex, endIndex)
+                let end = max(startIndex, endIndex)
+                selectedFileIDs = Set(files[start...end].map { $0.id })
+            }
+        } else if flags.contains(.command) {
+            // Toggle selection
+            if selectedFileIDs.contains(file.id) {
+                selectedFileIDs.remove(file.id)
+            } else {
+                selectedFileIDs.insert(file.id)
+            }
+            lastSelectedFileID = file.id
+        } else {
+            // Single selection
+            selectedFileIDs = [file.id]
+            lastSelectedFileID = file.id
+        }
+    }
+
     private func handleDoubleTap(file: AndroidFile) {
         if file.isDirectory {
             selectedFileIDs.removeAll()
             previewFile = nil
             navigate(to: file.path)
         } else if file.isAPK {
-            installAPK(file: file)
+            installAPKs(files: [file])
         } else if file.isImage || file.isVideo {
             previewFile = file
         }
@@ -260,35 +282,48 @@ struct FileBrowserView: View {
         }
     }
 
-    func copyToMac(file: AndroidFile) {
-        transferManager.copyToLocal(file: file, provider: getProvider())
+    func copyToMac(files: [AndroidFile]) {
+        let provider = getProvider()
+        for file in files {
+            transferManager.copyToLocal(file: file, provider: provider)
+        }
     }
 
-    func installAPK(file: AndroidFile) {
-        message = "正在安装 \(file.name)..."
+    func installAPKs(files: [AndroidFile]) {
         let provider = getProvider()
         Task {
-            do {
-                try await provider.installAPK(at: file.path)
-                await MainActor.run {
-                    self.message = "安装成功"
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                        if self.message == "安装成功" { self.message = nil }
-                    }
+            for file in files {
+                await MainActor.run { self.message = "正在安装 \(file.name)..." }
+                do {
+                    try await provider.installAPK(at: file.path)
+                    await MainActor.run { self.message = "安装成功: \(file.name)" }
+                } catch {
+                    await MainActor.run { self.message = "安装失败: \(error.localizedDescription)" }
                 }
-            } catch {
-                await MainActor.run { self.message = "安装失败: \(error.localizedDescription)" }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+            await MainActor.run {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    self.message = nil
+                }
             }
         }
     }
 
-    func deleteFile(file: AndroidFile) {
+    func deleteFiles(files: [AndroidFile]) {
         let provider = getProvider()
         Task {
-            do {
-                try await provider.delete(at: file.path)
-                await MainActor.run { self.refresh() }
-            } catch { print("Delete failed: \(error)") }
+            for file in files {
+                do {
+                    try await provider.delete(at: file.path)
+                } catch {
+                    print("Delete failed for \(file.name): \(error)")
+                }
+            }
+            await MainActor.run {
+                self.selectedFileIDs.removeAll()
+                self.refresh()
+            }
         }
     }
 
@@ -324,6 +359,7 @@ struct FileBrowserView: View {
 
     func navigate(to path: String) {
         previewFile = nil
+        lastSelectedFileID = nil
         currentPath = path
         refresh()
     }

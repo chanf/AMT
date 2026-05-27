@@ -9,6 +9,7 @@ struct AppManagerView: View {
     @State private var isLoading = false
     @State private var searchText = ""
     @State private var message: String? = nil
+    @State private var lastSelectedAppID: String? = nil
 
     var filteredApps: [AndroidApp] {
         if searchText.isEmpty {
@@ -60,16 +61,7 @@ struct AppManagerView: View {
                             ForEach(0..<filteredApps.count, id: \.self) { index in
                                 let app = filteredApps[index]
                                 Button(action: {
-                                    let flags = NSEvent.modifierFlags
-                                    if flags.contains(.command) {
-                                        if selectedAppIDs.contains(app.packageName) {
-                                            selectedAppIDs.remove(app.packageName)
-                                        } else {
-                                            selectedAppIDs.insert(app.packageName)
-                                        }
-                                    } else {
-                                        selectedAppIDs = [app.packageName]
-                                    }
+                                    handleSelection(for: app)
                                 }) {
                                     HStack {
                                         Image(systemName: "app.dashed")
@@ -91,6 +83,7 @@ struct AppManagerView: View {
                                 .listRowInsets(EdgeInsets())
                                 .simultaneousGesture(TapGesture(count: 2).onEnded {
                                     self.selectedAppIDs = [app.packageName]
+                                    self.lastSelectedAppID = app.packageName
                                 })
                             }
                         } header: {
@@ -122,6 +115,7 @@ struct AppManagerView: View {
     func refresh() {
         isLoading = true
         message = nil
+        lastSelectedAppID = nil
         Task {
             do {
                 let fetchedApps = try await provider.listApps()
@@ -173,6 +167,7 @@ struct AppManagerView: View {
                 await MainActor.run {
                     self.message = "卸载成功"
                     self.selectedAppIDs.remove(app.packageName)
+                    self.lastSelectedAppID = nil
                     self.refresh()
                 }
             } catch {
@@ -180,6 +175,31 @@ struct AppManagerView: View {
                     self.message = "卸载失败: \(error.localizedDescription)"
                 }
             }
+        }
+    }
+
+    // MARK: - Actions
+
+    private func handleSelection(for app: AndroidApp) {
+        let flags = NSEvent.modifierFlags
+        if flags.contains(.shift), let lastID = lastSelectedAppID {
+            if let startIndex = filteredApps.firstIndex(where: { $0.packageName == lastID }),
+               let endIndex = filteredApps.firstIndex(where: { $0.packageName == app.packageName }) {
+                let start = min(startIndex, endIndex)
+                let end = max(startIndex, endIndex)
+                let rangeIDs = filteredApps[start...end].map { $0.packageName }
+                selectedAppIDs = Set(rangeIDs)
+            }
+        } else if flags.contains(.command) {
+            if selectedAppIDs.contains(app.packageName) {
+                selectedAppIDs.remove(app.packageName)
+            } else {
+                selectedAppIDs.insert(app.packageName)
+            }
+            lastSelectedAppID = app.packageName
+        } else {
+            selectedAppIDs = [app.packageName]
+            lastSelectedAppID = app.packageName
         }
     }
 }
