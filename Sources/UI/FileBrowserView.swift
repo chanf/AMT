@@ -2,6 +2,8 @@ import SwiftUI
 
 struct FileBrowserView: View {
     let device: AndroidDevice
+    @Binding var externalTargetPath: String?
+    
     @State private var files: [AndroidFile] = []
     @State private var currentPath: String = "/sdcard"
     @State private var isLoading = false
@@ -92,6 +94,12 @@ struct FileBrowserView: View {
         .navigationTitle(device.model)
         .onAppear(perform: refresh)
         .searchable(text: $searchText)
+        .onChange(of: externalTargetPath) { newPath in
+            if let path = newPath {
+                navigate(to: path)
+                externalTargetPath = nil
+            }
+        }
     }
 
     private func getProvider() -> FileProvider {
