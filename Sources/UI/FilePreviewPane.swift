@@ -41,6 +41,8 @@ struct FilePreviewPane: View {
                                 imagePreviewSection(for: file)
                             } else if file.isVideo {
                                 videoPreviewSection(for: file)
+                            } else if file.isAudio {
+                                audioPreviewSection(for: file)
                             } else if file.isText {
                                 textPreviewSection(for: file)
                             } else {
@@ -98,7 +100,7 @@ struct FilePreviewPane: View {
             Image(systemName: "info.circle")
                 .font(.system(size: 48))
                 .foregroundColor(.secondary)
-            Text("双击图片、视频或文本查看预览")
+            Text("双击图片、视频、音频或文本查看预览")
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -140,6 +142,35 @@ struct FilePreviewPane: View {
                     .aspectRatio(videoAspectRatio ?? 16/9, contentMode: .fit)
                     .cornerRadius(8)
                     .padding()
+            } else if let error = errorMessage {
+                errorView(error)
+                    .frame(height: 200)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func audioPreviewSection(for file: AndroidFile) -> some View {
+        ZStack {
+            if isLoading {
+                VStack {
+                    ProgressView()
+                    Text("正在拉取音频...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .frame(height: 200)
+            } else if let player = player {
+                VStack(spacing: 20) {
+                    Image(systemName: "music.note")
+                        .font(.system(size: 80))
+                        .foregroundColor(.blue)
+                    
+                    NativeVideoPlayer(player: player)
+                        .frame(height: 60)
+                        .cornerRadius(8)
+                }
+                .padding()
             } else if let error = errorMessage {
                 errorView(error)
                     .frame(height: 200)
@@ -201,7 +232,7 @@ struct FilePreviewPane: View {
         cancelLoading()
         errorMessage = nil
         
-        guard let file = file, (file.isImage || file.isVideo || file.isText), let provider = provider else { return }
+        guard let file = file, (file.isImage || file.isVideo || file.isText || file.isAudio), let provider = provider else { return }
         
         isLoading = true
         loadingTask = Task {
@@ -226,12 +257,12 @@ struct FilePreviewPane: View {
     
     @MainActor
     private func handleLoadedFile(_ url: URL, file: AndroidFile) async throws {
-        if file.isVideo {
+        if file.isVideo || file.isAudio {
             let asset = AVAsset(url: url)
             let isPlayable = try await asset.load(.isPlayable)
             if isPlayable {
-                // Calculate aspect ratio
-                if let track = try await asset.loadTracks(withMediaType: .video).first {
+                // Calculate aspect ratio only for video
+                if file.isVideo, let track = try await asset.loadTracks(withMediaType: .video).first {
                     let size = try await track.load(.naturalSize)
                     let transform = try await track.load(.preferredTransform)
                     let displaySize = size.applying(transform)
@@ -245,7 +276,7 @@ struct FilePreviewPane: View {
                 self.player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
                 self.previewURL = url
             } else {
-                self.errorMessage = "视频文件不可播放或格式不支持"
+                self.errorMessage = "\(file.isAudio ? "音频" : "视频")文件不可播放或格式不支持"
             }
         } else if file.isImage {
             if let _ = NSImage(contentsOf: url) {

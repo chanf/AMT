@@ -44,6 +44,12 @@ struct AndroidFile: Identifiable, Hashable {
         return textExtensions.contains(ext)
     }
 
+    var isAudio: Bool {
+        let audioExtensions = ["mp3", "m4a", "wav", "aac", "flac", "ogg"]
+        let ext = (name as NSString).pathExtension.lowercased()
+        return audioExtensions.contains(ext)
+    }
+
     var isAPK: Bool {
         return (name as NSString).pathExtension.lowercased() == "apk"
     }
