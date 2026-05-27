@@ -68,6 +68,9 @@ struct FilePreviewPane: View {
         }
         .frame(minWidth: 250)
         .background(Color(NSColor.windowBackgroundColor))
+        .onAppear {
+            loadPreview(for: file)
+        }
         .onChange(of: file) { newFile in
             loadPreview(for: newFile)
         }
