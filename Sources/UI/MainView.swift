@@ -9,6 +9,7 @@ struct MainView: View {
     @StateObject var deviceManager = UnifiedDeviceManager()
     @State private var selectedDevice: AndroidDevice?
     @State private var selectedFile: AndroidFile? = nil
+    @State private var selectedApp: AndroidApp? = nil
     @State private var targetPath: String? = nil
     @State private var viewMode: ViewMode = .fileBrowser
     @State private var navigationPath = [String]() // Breadcrumbs
@@ -26,7 +27,7 @@ struct MainView: View {
                                 .id(device.id)
                         } else {
                             if let provider = getProvider(for: device) {
-                                AppManagerView(device: device, provider: provider)
+                                AppManagerView(device: device, provider: provider, selectedApp: $selectedApp)
                                     .id("\(device.id)-apps")
                             }
                         }
@@ -38,8 +39,18 @@ struct MainView: View {
                             .frame(width: 300)
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
+
+                    if viewMode == .appManager, let app = selectedApp {
+                        Divider()
+                        AppDetailPane(app: app, provider: getProvider(for: device)) {
+                            uninstall(app: app, device: device)
+                        }
+                        .frame(width: 300)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                    }
                 }
                 .animation(.spring(), value: selectedFile)
+                .animation(.spring(), value: selectedApp)
                 .animation(.default, value: viewMode)
             } else {
                 VStack(spacing: 20) {
@@ -58,8 +69,7 @@ struct MainView: View {
         }
         .onChange(of: selectedDevice) { _ in
             selectedFile = nil
-            // Reset to file browser when switching devices? 
-            // Or keep it. Let's keep it but ensure view refreshes.
+            selectedApp = nil
         }
     }
     
@@ -69,6 +79,21 @@ struct MainView: View {
             return ADBFileProvider(device: device)
         } else {
             return MTPFileProvider(device: device)
+        }
+    }
+
+    private func uninstall(app: AndroidApp, device: AndroidDevice) {
+        guard let provider = getProvider(for: device) else { return }
+        Task {
+            do {
+                try await provider.uninstallApp(packageName: app.packageName)
+                await MainActor.run {
+                    self.selectedApp = nil
+                    // Note: Ideally we'd trigger a refresh in AppManagerView here.
+                }
+            } catch {
+                print("Uninstall failed: \(error)")
+            }
         }
     }
 }

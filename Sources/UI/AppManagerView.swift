@@ -3,6 +3,7 @@ import SwiftUI
 struct AppManagerView: View {
     let device: AndroidDevice
     let provider: FileProvider
+    @Binding var selectedApp: AndroidApp?
     
     @State private var apps: [AndroidApp] = []
     @State private var isLoading = false
@@ -46,31 +47,30 @@ struct AppManagerView: View {
                 ProgressView("正在加载应用列表...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                Table(filteredApps) {
-                    TableColumn("应用名称") { app in
-                        HStack {
-                            Image(systemName: "app.dashed")
-                                .foregroundColor(.secondary)
-                            Text(app.name ?? "正在查询...")
-                                .foregroundColor(app.name == nil ? .secondary : .primary)
+                List {
+                    Section {
+                        ForEach(0..<filteredApps.count, id: \.self) { index in
+                            let app = filteredApps[index]
+                            HStack {
+                                Image(systemName: "app.dashed")
+                                    .foregroundColor(.secondary)
+                                Text(app.name ?? app.packageName)
+                                    .fontWeight(.medium)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                            .padding(.vertical, 4)
+                            .onTapGesture(count: 2) {
+                                self.selectedApp = app
+                            }
                         }
-                    }
-                    TableColumn("包名") { app in
-                        Text(app.packageName)
-                            .font(.system(.body, design: .monospaced))
+                    } header: {
+                        Text("应用")
+                            .font(.caption.bold())
                             .foregroundColor(.secondary)
                     }
-                    TableColumn("操作") { app in
-                        Button(role: .destructive) {
-                            uninstall(app: app)
-                        } label: {
-                            Text("卸载")
-                                .foregroundColor(.red)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .width(60)
                 }
+                .listStyle(.inset)
             }
         }
         .navigationTitle("\(device.model) - 应用")
@@ -89,50 +89,40 @@ struct AppManagerView: View {
                     self.isLoading = false
                 }
                 
-                // Lazy fetch app names in background
-                for i in 0..<fetchedApps.count {
-                    let pkg = fetchedApps[i].packageName
-                    // Add a small delay to avoid overwhelming the ADB process
-                    if i > 0 && i % 5 == 0 { try? await Task.sleep(nanoseconds: 100_000_000) }
+                // Concurrent fetch app names (minimal details for list)
+                try await withThrowingTaskGroup(of: (String, String?).self) { group in
+                    let maxConcurrentPulls = 3
+                    var currentIndex = 0
                     
-                    if let name = try? await provider.fetchAppName(packageName: pkg) {
+                    func addNextTask() {
+                        if currentIndex < fetchedApps.count {
+                            let app = fetchedApps[currentIndex]
+                            group.addTask {
+                                // For the list, we just want the name. 
+                                // In the future, we could have a fetchAppNameOnly method, 
+                                // but for now, let's reuse fetchAppDetails (it caches name).
+                                let detailed = try? await provider.fetchAppDetails(app: app)
+                                return (app.packageName, detailed?.name)
+                            }
+                            currentIndex += 1
+                        }
+                    }
+                    
+                    for _ in 0..<min(maxConcurrentPulls, fetchedApps.count) { addNextTask() }
+                    
+                    while let (pkg, name) = try await group.next() {
                         await MainActor.run {
-                            if let currentIndex = self.apps.firstIndex(where: { $0.packageName == pkg }) {
-                                self.apps[currentIndex].name = name
+                            if let i = self.apps.firstIndex(where: { $0.packageName == pkg }) {
+                                self.apps[i].name = name
                             }
                         }
-                    } else {
-                        // If still not found, mark it so we don't show "querying" forever
-                        await MainActor.run {
-                            if let currentIndex = self.apps.firstIndex(where: { $0.packageName == pkg }) {
-                                if self.apps[currentIndex].name == nil {
-                                    self.apps[currentIndex].name = pkg // Fallback
-                                }
-                            }
-                        }
+                        addNextTask()
                     }
                 }
             } catch {
                 await MainActor.run {
                     self.message = "加载失败: \(error.localizedDescription)"
                     self.isLoading = false
-                }
-            }
-        }
-    }
-
-    func uninstall(app: AndroidApp) {
-        message = "正在卸载 \(app.packageName)..."
-        Task {
-            do {
-                try await provider.uninstallApp(packageName: app.packageName)
-                await MainActor.run {
-                    self.message = "卸载成功"
-                    self.refresh()
-                }
-            } catch {
-                await MainActor.run {
-                    self.message = "卸载失败: \(error.localizedDescription)"
                 }
             }
         }

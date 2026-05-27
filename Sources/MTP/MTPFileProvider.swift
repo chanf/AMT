@@ -41,7 +41,7 @@ class MTPFileProvider: FileProvider {
     func installAPK(at path: String) async throws {}
     func listApps() async throws -> [AndroidApp] { return [] }
     func uninstallApp(packageName: String) async throws {}
-    func fetchAppName(packageName: String) async throws -> String? { return nil }
+    func fetchAppDetails(app: AndroidApp) async throws -> AndroidApp { return app }
 }
 
 class MTPDeviceManager: DeviceManager {

@@ -64,5 +64,10 @@ class MockFileProvider: FileProvider {
         ]
     }
     func uninstallApp(packageName: String) async throws {}
-    func fetchAppName(packageName: String) async throws -> String? { return "Mock App Name" }
+    func fetchAppDetails(app: AndroidApp) async throws -> AndroidApp {
+        var updated = app
+        updated.name = "Mock App"
+        updated.versionName = "1.0.0"
+        return updated
+    }
 }

@@ -48,4 +48,8 @@ struct AndroidApp: Identifiable, Hashable {
     var id: String { packageName }
     let packageName: String
     var name: String? = nil
+    var remotePath: String? = nil
+    var versionName: String? = nil
+    var versionCode: String? = nil
+    var iconURL: URL? = nil
 }

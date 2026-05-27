@@ -18,20 +18,15 @@ class ADBFileProvider: FileProvider {
         print("ADB: Listing files at \(path) (using \(targetPath))")
         
         let output = try await runADB(args: ["-s", device.serial, "shell", "ls", "-la", targetPath])
-        // print("ADB: Raw output length: \(output.count)")
         return parseLSOutput(output, parentPath: path)
     }
 
     func copyToLocal(remotePath: String, localPath: String, progress: @escaping (Double) -> Void) async throws {
-        // Run: adb -s <serial> pull <remote> <local>
-        // Note: adb pull doesn't give easy progress via stdout unless we parse it.
-        // For simplicity, we run it and assume completion.
         _ = try await runADB(args: ["-s", device.serial, "pull", remotePath, localPath])
         progress(1.0)
     }
 
     func copyToDevice(localPath: String, remotePath: String, progress: @escaping (Double) -> Void) async throws {
-        // Run: adb -s <serial> push <local> <remote>
         _ = try await runADB(args: ["-s", device.serial, "push", localPath, remotePath])
         progress(1.0)
     }
@@ -51,15 +46,10 @@ class ADBFileProvider: FileProvider {
         print("Preview: Pulling \(file.path) to \(localURL.path)")
         do {
             let output = try await runADB(args: ["-s", device.serial, "pull", file.path, localURL.path])
-            print("Preview: ADB Output: \(output)")
-            
             if FileManager.default.fileExists(atPath: localURL.path) {
-                print("Preview: File exists at \(localURL.path)")
                 return localURL
-            } else {
-                print("Preview: File DOES NOT exist at \(localURL.path)")
-                return nil
             }
+            return nil
         } catch {
             print("Preview: ADB Pull Failed: \(error)")
             throw error
@@ -67,20 +57,30 @@ class ADBFileProvider: FileProvider {
     }
 
     func installAPK(at path: String) async throws {
-        // Run: adb -s <serial> shell pm install -r <path>
-        _ = try await runADB(args: ["-s", device.serial, "shell", "pm", "install", "-r", path])
+        let tmpPath = "/data/local/tmp/temp_install.apk"
+        _ = try await runADB(args: ["-s", device.serial, "shell", "cp", path, tmpPath])
+        do {
+            _ = try await runADB(args: ["-s", device.serial, "shell", "pm", "install", "-r", tmpPath])
+            _ = try await runADB(args: ["-s", device.serial, "shell", "rm", tmpPath])
+        } catch {
+            _ = try await runADB(args: ["-s", device.serial, "shell", "rm", tmpPath])
+            throw error
+        }
     }
 
     func listApps() async throws -> [AndroidApp] {
-        // Run: adb -s <serial> shell pm list packages -3 (third party only)
-        let output = try await runADB(args: ["-s", device.serial, "shell", "pm", "list", "packages", "-3"])
+        let output = try await runADB(args: ["-s", device.serial, "shell", "pm", "list", "packages", "-3", "-f"])
         let lines = output.components(separatedBy: .newlines)
         var apps: [AndroidApp] = []
         for line in lines {
-            if line.hasPrefix("package:") {
-                let packageName = line.replacingOccurrences(of: "package:", with: "")
-                if !packageName.isEmpty {
-                    apps.append(AndroidApp(packageName: packageName))
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty || !trimmed.hasPrefix("package:") { continue }
+            let content = String(trimmed.dropFirst("package:".count)).trimmingCharacters(in: .whitespaces)
+            if let lastEqualIndex = content.lastIndex(of: "=") {
+                let path = String(content[..<lastEqualIndex])
+                let pkg = String(content[content.index(after: lastEqualIndex)...]).trimmingCharacters(in: .whitespaces)
+                if !pkg.isEmpty {
+                    apps.append(AndroidApp(packageName: pkg, name: AppCacheManager.shared.getName(for: pkg), remotePath: path))
                 }
             }
         }
@@ -88,58 +88,92 @@ class ADBFileProvider: FileProvider {
     }
 
     func uninstallApp(packageName: String) async throws {
-        // Run: adb -s <serial> shell pm uninstall <packageName>
         _ = try await runADB(args: ["-s", device.serial, "shell", "pm", "uninstall", packageName])
     }
 
-    func fetchAppName(packageName: String) async throws -> String? {
-        // 1. Get APK path on device
-        let pathOutput = try await runADB(args: ["-s", device.serial, "shell", "pm", "path", packageName])
-        guard let remotePath = pathOutput.components(separatedBy: ":").last?.trimmingCharacters(in: .whitespacesAndNewlines) else {
-            return nil
+    func fetchAppDetails(app: AndroidApp) async throws -> AndroidApp {
+        var updatedApp = app
+        let packageName = app.packageName
+
+        var apkPath = app.remotePath
+        if apkPath == nil {
+            let pathOutput = try await runADB(args: ["-s", device.serial, "shell", "pm", "path", packageName])
+            apkPath = pathOutput.components(separatedBy: ":").last?.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        
-        // 2. Pull base.apk to a temp location
+        guard let finalRemotePath = apkPath else { return updatedApp }
+
         let localTempAPK = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(packageName).apk")
-        _ = try await runADB(args: ["-s", device.serial, "pull", remotePath, localTempAPK.path])
-        
-        defer {
-            try? FileManager.default.removeItem(at: localTempAPK)
-        }
-        
-        // 3. Run local aapt to get the label
+        _ = try await runADB(args: ["-s", device.serial, "pull", finalRemotePath, localTempAPK.path])
+        defer { try? FileManager.default.removeItem(at: localTempAPK) }
+
         let aaptOutput = try await runLocalCommand(executable: aaptPath, args: ["dump", "badging", localTempAPK.path])
-        
-        for line in aaptOutput.components(separatedBy: .newlines) {
-            if line.contains("application-label:") {
-                let parts = line.components(separatedBy: ":")
-                if parts.count >= 2 {
-                    return parts[1].trimmingCharacters(in: .whitespaces)
-                        .replacingOccurrences(of: "'", with: "")
+        let lines = aaptOutput.components(separatedBy: .newlines)
+        var internalIconPath: String? = nil
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.contains("application-label:") {
+                let label = trimmed.components(separatedBy: ":").last?.replacingOccurrences(of: "'", with: "").trimmingCharacters(in: .whitespaces)
+                if let label = label, !label.isEmpty {
+                    updatedApp.name = label
+                    AppCacheManager.shared.saveName(label, for: packageName)
                 }
+            }
+            if trimmed.hasPrefix("package:") {
+                if let vName = extractValue(from: trimmed, for: "versionName") { updatedApp.versionName = vName }
+                if let vCode = extractValue(from: trimmed, for: "versionCode") { updatedApp.versionCode = vCode }
+            }
+            if internalIconPath == nil && (trimmed.contains("application-icon-") || trimmed.hasPrefix("icon=")) {
+                internalIconPath = trimmed.components(separatedBy: ":").last?.replacingOccurrences(of: "'", with: "").trimmingCharacters(in: .whitespaces)
+            }
+        }
+
+        if let iconPath = internalIconPath {
+            let localIconURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(packageName)_icon.png")
+            do {
+                _ = try await runLocalCommand(executable: "/usr/bin/unzip", args: ["-p", localTempAPK.path, iconPath], outputPath: localIconURL.path)
+                updatedApp.iconURL = localIconURL
+            } catch {
+                print("ADB: Failed to extract icon: \(error)")
+            }
+        }
+        return updatedApp
+    }
+
+    // MARK: - Helper Methods
+
+    private func extractValue(from line: String, for key: String) -> String? {
+        let pattern = "\(key)='([^']*)'"
+        if let regex = try? NSRegularExpression(pattern: pattern),
+           let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) {
+            if let range = Range(match.range(at: 1), in: line) {
+                return String(line[range])
             }
         }
         return nil
     }
 
-    // MARK: - Helper Methods
-
-    private func runLocalCommand(executable: String, args: [String]) async throws -> String {
+    private func runLocalCommand(executable: String, args: [String], outputPath: String? = nil) async throws -> String {
         return try await withCheckedThrowingContinuation { continuation in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: executable)
             process.arguments = args
             let outputPipe = Pipe()
-            process.standardOutput = outputPipe
+            if let outPath = outputPath {
+                try? FileManager.default.createFile(atPath: outPath, contents: nil)
+                if let fileHandle = FileHandle(forWritingAtPath: outPath) { process.standardOutput = fileHandle }
+            } else {
+                process.standardOutput = outputPipe
+            }
             do {
                 try process.run()
-                let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-                process.waitUntilExit()
-                if let output = String(data: data, encoding: .utf8) {
-                    continuation.resume(returning: output)
-                } else {
-                    continuation.resume(throwing: NSError(domain: "LocalCommandError", code: 1))
+                var output = ""
+                if outputPath == nil {
+                    let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                    output = String(data: data, encoding: .utf8) ?? ""
                 }
+                process.waitUntilExit()
+                continuation.resume(returning: output)
             } catch {
                 continuation.resume(throwing: error)
             }
@@ -151,23 +185,20 @@ class ADBFileProvider: FileProvider {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: adbPath)
             process.arguments = args
-
             let outputPipe = Pipe()
             let errorPipe = Pipe()
             process.standardOutput = outputPipe
             process.standardError = errorPipe
-
             do {
                 try process.run()
                 let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
                 let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
                 process.waitUntilExit()
-
                 if process.terminationStatus == 0 {
                     if let output = String(data: data, encoding: .utf8) {
                         continuation.resume(returning: output)
                     } else {
-                        continuation.resume(throwing: NSError(domain: "ADBError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to decode output"]))
+                        continuation.resume(throwing: NSError(domain: "ADBError", code: 1))
                     }
                 } else {
                     let errorMsg = String(data: errorData, encoding: .utf8) ?? "Unknown error"
@@ -182,45 +213,24 @@ class ADBFileProvider: FileProvider {
     private func parseLSOutput(_ output: String, parentPath: String) -> [AndroidFile] {
         var files: [AndroidFile] = []
         let lines = output.components(separatedBy: .newlines)
-        
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty || trimmed.hasPrefix("total ") { continue }
-            
             let parts = line.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-            // Expected format: [perms] [links] [owner] [group] [size] [date] [time] [name...]
             if parts.count >= 8 {
                 let permissions = parts[0]
                 let isDirectory = permissions.hasPrefix("d")
                 let isSymlink = permissions.hasPrefix("l")
-                
-                // Filename starts at index 7.
-                // If it's a symlink, the part will be "name -> target"
-                var nameParts = Array(parts.suffix(from: 7))
+                let nameParts = Array(parts.suffix(from: 7))
                 var name = nameParts.joined(separator: " ")
-                
-                if isSymlink {
-                    // Extract name before " -> "
-                    if let arrowIndex = nameParts.firstIndex(of: "->") {
-                        name = nameParts[0..<arrowIndex].joined(separator: " ")
-                    }
+                if isSymlink, let arrowIndex = nameParts.firstIndex(of: "->") {
+                    name = nameParts[0..<arrowIndex].joined(separator: " ")
                 }
-                
                 if name == "." || name == ".." { continue }
-
                 let sizeStr = parts[4]
                 let size = Int64(sizeStr) ?? 0
-                
                 let filePath = parentPath.hasSuffix("/") ? "\(parentPath)\(name)" : "\(parentPath)/\(name)"
-                
-                files.append(AndroidFile(
-                    id: UUID().uuidString,
-                    name: name,
-                    path: filePath,
-                    isDirectory: isDirectory || isSymlink, // Treat symlinks as directories for navigation if they point to one (simplified)
-                    size: size,
-                    modificationDate: nil
-                ))
+                files.append(AndroidFile(id: UUID().uuidString, name: name, path: filePath, isDirectory: isDirectory || isSymlink, size: size, modificationDate: nil))
             }
         }
         return files
