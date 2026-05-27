@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct FileBrowserView: View {
     let device: AndroidDevice
@@ -9,6 +10,7 @@ struct FileBrowserView: View {
     @State private var currentPath: String = "/sdcard"
     @State private var isLoading = false
     @State private var searchText = ""
+    @State private var isDropTargeted = false
 
     @StateObject var transferManager = TransferManager.shared
 
@@ -106,6 +108,11 @@ struct FileBrowserView: View {
                 .listStyle(.inset)
             }
         }
+        .background(isDropTargeted ? Color.accentColor.opacity(0.1) : Color.clear)
+        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
+            handleDrop(providers: providers)
+            return true
+        }
         .navigationTitle(device.model)
         .onAppear(perform: refresh)
         .searchable(text: $searchText)
@@ -141,6 +148,29 @@ struct FileBrowserView: View {
 
     func copyToMac(file: AndroidFile) {
         transferManager.copyToLocal(file: file, provider: getProvider())
+    }
+
+    func handleDrop(providers: [NSItemProvider]) {
+        let group = DispatchGroup()
+        var urls: [URL] = []
+        
+        for provider in providers {
+            group.enter()
+            _ = provider.loadObject(ofClass: URL.self) { url, error in
+                if let url = url {
+                    urls.append(url)
+                }
+                group.leave()
+            }
+        }
+        
+        group.notify(queue: .main) {
+            if !urls.isEmpty {
+                transferManager.uploadToDevice(localURLs: urls, remotePath: currentPath, provider: getProvider()) {
+                    self.refresh()
+                }
+            }
+        }
     }
 
     func launchScrcpy() {

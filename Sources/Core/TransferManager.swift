@@ -27,4 +27,34 @@ class TransferManager: ObservableObject {
             }
         }
     }
+
+    func uploadToDevice(localURLs: [URL], remotePath: String, provider: FileProvider, onComplete: @escaping () -> Void) {
+        Task {
+            for url in localURLs {
+                let fileName = url.lastPathComponent
+                let destination = remotePath.hasSuffix("/") ? "\(remotePath)\(fileName)" : "\(remotePath)/\(fileName)"
+                
+                print("Uploading \(url.path) to \(destination)")
+                
+                do {
+                    try await provider.copyToDevice(localPath: url.path, remotePath: destination) { progress in
+                        DispatchQueue.main.async {
+                            self.activeTransfers[url.path] = progress
+                        }
+                    }
+                    DispatchQueue.main.async {
+                        self.activeTransfers.removeValue(forKey: url.path)
+                    }
+                } catch {
+                    print("Upload failed: \(error)")
+                    DispatchQueue.main.async {
+                        self.activeTransfers.removeValue(forKey: url.path)
+                    }
+                }
+            }
+            DispatchQueue.main.async {
+                onComplete()
+            }
+        }
+    }
 }
