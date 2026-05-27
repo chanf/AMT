@@ -19,8 +19,11 @@ fi
 mkdir -p "$MACOS"
 mkdir -p "$RESOURCES"
 
-# 3. Copy binary
+# 3. Copy binary and icon
 cp "$BUILD_PATH" "$MACOS/"
+if [ -f "AppIcon.icns" ]; then
+    cp "AppIcon.icns" "$RESOURCES/"
+fi
 
 # 4. Create Info.plist
 cat <<EOF > "$CONTENTS/Info.plist"
@@ -38,6 +41,8 @@ cat <<EOF > "$CONTENTS/Info.plist"
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>NSHighResolutionCapable</key>

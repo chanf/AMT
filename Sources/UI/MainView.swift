@@ -15,14 +15,14 @@ struct MainView: View {
                 FileBrowserView(device: device, externalTargetPath: $targetPath)
                     .id(device.id)
             } else {
-                VStack(spacing: 12) {
-                    Image(systemName: "iphone.gen3")
-                        .font(.system(size: 48))
-                        .foregroundColor(.secondary)
-                    Text("Select a Device")
-                        .font(.title2)
-                    Text("Connect an Android device via USB to start browsing.")
-                        .foregroundColor(.secondary)
+                VStack(spacing: 20) {
+                    AppIcon(size: 100)
+                    VStack(spacing: 8) {
+                        Text("选择一个设备")
+                            .font(.title2)
+                        Text("通过 USB 线连接安卓设备以开始浏览")
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
         }
@@ -39,6 +39,20 @@ struct DeviceSidebar: View {
 
     var body: some View {
         List(selection: $selectedDevice) {
+            Section {
+                HStack {
+                    AppIcon(size: 40)
+                    VStack(alignment: .leading) {
+                        Text("AndroidFile")
+                            .font(.headline)
+                        Text("文件管理器")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+            
             Section("设备列表") {
                 ForEach(deviceManager.connectedDevices) { device in
                     NavigationLink(value: device) {
