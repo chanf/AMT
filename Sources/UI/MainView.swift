@@ -11,10 +11,20 @@ struct MainView: View {
         NavigationSplitView {
             DeviceSidebar(selectedDevice: $selectedDevice, targetPath: $targetPath)
                 .environmentObject(deviceManager)
-        } content: {
+        } detail: {
             if let device = selectedDevice {
-                FileBrowserView(device: device, externalTargetPath: $targetPath, selectedFile: $selectedFile)
-                    .id(device.id)
+                HStack(spacing: 0) {
+                    FileBrowserView(device: device, externalTargetPath: $targetPath, selectedFile: $selectedFile)
+                        .id(device.id)
+                    
+                    if let file = selectedFile, file.isImage {
+                        Divider()
+                        FilePreviewPane(file: file, provider: getProvider(for: device))
+                            .frame(width: 300)
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                    }
+                }
+                .animation(.spring(), value: selectedFile)
             } else {
                 VStack(spacing: 20) {
                     AppIcon(size: 100)
@@ -26,8 +36,6 @@ struct MainView: View {
                     }
                 }
             }
-        } detail: {
-            FilePreviewPane(file: selectedFile, provider: getProvider(for: selectedDevice))
         }
         .onAppear {
             deviceManager.startDiscovery()
