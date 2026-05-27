@@ -1,0 +1,5 @@
+module Clibmtp [system] {
+    header "/usr/local/include/libmtp.h"
+    link "mtp"
+    export *
+}
