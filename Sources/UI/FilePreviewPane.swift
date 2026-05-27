@@ -1,30 +1,52 @@
 import SwiftUI
 import AVKit
 
+/// A more stable VideoPlayer wrapper for macOS using AVPlayerView
+struct NativeVideoPlayer: NSViewRepresentable {
+    let player: AVPlayer
+    
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.player = player
+        view.controlsStyle = .inline
+        view.allowsPictureInPicturePlayback = true
+        return view
+    }
+    
+    func updateNSView(_ nsView: AVPlayerView, context: Context) {
+        nsView.player = player
+    }
+}
+
 struct FilePreviewPane: View {
     let file: AndroidFile?
     let provider: FileProvider?
     
     @State private var previewURL: URL? = nil
+    @State private var player: AVPlayer? = nil
     @State private var isLoading = false
     @State private var errorMessage: String? = nil
+    @State private var loadingTask: Task<Void, Never>? = nil
 
     var body: some View {
         VStack {
             if let file = file {
                 ScrollView {
                     VStack(spacing: 20) {
-                        // Icon or Image/Video
-                        if file.isImage {
-                            imagePreviewSection(for: file)
-                        } else if file.isVideo {
-                            videoPreviewSection(for: file)
-                        } else {
-                            Image(systemName: file.isDirectory ? "folder.fill" : "doc.fill")
-                                .font(.system(size: 80))
-                                .foregroundColor(file.isDirectory ? .blue : .secondary)
-                                .padding(.top, 40)
+                        // Media Section
+                        Group {
+                            if file.isImage {
+                                imagePreviewSection(for: file)
+                            } else if file.isVideo {
+                                videoPreviewSection(for: file)
+                            } else {
+                                Image(systemName: file.isDirectory ? "folder.fill" : "doc.fill")
+                                    .font(.system(size: 80))
+                                    .foregroundColor(file.isDirectory ? .blue : .secondary)
+                                    .padding(.top, 40)
+                            }
                         }
+                        .frame(height: 250)
                         
                         // File info
                         VStack(spacing: 8) {
@@ -37,17 +59,10 @@ struct FilePreviewPane: View {
                                     .font(.subheadline)
                                     .foregroundColor(.secondary)
                             }
-                            
-                            if let date = file.modificationDate {
-                                Text("修改日期: \(date.formatted())")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
                         }
                         .padding(.horizontal)
                         
-                        Divider()
-                            .padding(.horizontal)
+                        Divider().padding(.horizontal)
                         
                         VStack(alignment: .leading, spacing: 10) {
                             infoRow(label: "路径", value: file.path)
@@ -59,24 +74,31 @@ struct FilePreviewPane: View {
                     }
                 }
             } else {
-                VStack(spacing: 20) {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 48))
-                        .foregroundColor(.secondary)
-                    Text("选择一个文件以查看预览")
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                emptyStateView
             }
         }
-        .frame(minWidth: 250)
+        .frame(minWidth: 300)
         .background(Color(NSColor.windowBackgroundColor))
         .onAppear {
             loadPreview(for: file)
         }
+        .onDisappear {
+            cancelLoading()
+        }
         .onChange(of: file) { newFile in
             loadPreview(for: newFile)
         }
+    }
+    
+    private var emptyStateView: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "info.circle")
+                .font(.system(size: 48))
+                .foregroundColor(.secondary)
+            Text("双击图片或视频以查看预览")
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
     @ViewBuilder
@@ -84,27 +106,15 @@ struct FilePreviewPane: View {
         ZStack {
             if isLoading {
                 ProgressView()
-                    .frame(height: 200)
             } else if let url = previewURL, let nsImage = NSImage(contentsOf: url) {
                 Image(nsImage: nsImage)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: .infinity)
                     .cornerRadius(8)
                     .padding()
                     .shadow(radius: 4)
             } else if let error = errorMessage {
-                VStack {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.largeTitle)
-                        .foregroundColor(.orange)
-                    Text(error)
-                        .font(.caption)
-                }
-                .frame(height: 200)
-            } else {
-                // Initial state
-                Color.clear.frame(height: 200)
+                errorView(error)
             }
         }
     }
@@ -119,81 +129,88 @@ struct FilePreviewPane: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
-                .frame(height: 200)
-            } else if let url = previewURL {
-                VideoPlayer(player: AVPlayer(url: url))
-                    .frame(height: 200)
+            } else if let player = player {
+                NativeVideoPlayer(player: player)
                     .cornerRadius(8)
                     .padding()
             } else if let error = errorMessage {
-                VStack {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.largeTitle)
-                        .foregroundColor(.orange)
-                    Text(error)
-                        .font(.caption)
-                }
-                .frame(height: 200)
+                errorView(error)
             }
+        }
+    }
+    
+    private func errorView(_ message: String) -> some View {
+        VStack {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.largeTitle)
+                .foregroundColor(.orange)
+            Text(message)
+                .font(.caption)
+                .multilineTextAlignment(.center)
+                .padding()
         }
     }
     
     private func infoRow(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(label)
-                .font(.caption)
-                .foregroundColor(.secondary)
-            Text(value)
-                .font(.body)
-                .textSelection(.enabled)
+            Text(label).font(.caption).foregroundColor(.secondary)
+            Text(value).font(.body).textSelection(.enabled)
         }
     }
     
-    private func loadPreview(for file: AndroidFile?) {
+    private func cancelLoading() {
+        loadingTask?.cancel()
+        loadingTask = nil
+        player?.pause()
+        player = nil
         previewURL = nil
+    }
+    
+    private func loadPreview(for file: AndroidFile?) {
+        cancelLoading()
         errorMessage = nil
         
         guard let file = file, (file.isImage || file.isVideo), let provider = provider else { return }
         
-        print("PreviewPane: Starting load for \(file.name)")
         isLoading = true
-        Task {
+        loadingTask = Task {
             do {
-                if let url = try await provider.fetchPreviewData(for: file) {
-                    if file.isImage {
-                        let data = try Data(contentsOf: url)
-                        print("PreviewPane: Read \(data.count) bytes from local temp file")
-                        
-                        if let _ = NSImage(data: data) {
-                            await MainActor.run {
-                                self.previewURL = url
-                                self.isLoading = false
-                            }
-                        } else {
-                            await MainActor.run {
-                                self.errorMessage = "图片格式不支持"
-                                self.isLoading = false
-                            }
-                        }
-                    } else if file.isVideo {
-                        await MainActor.run {
-                            self.previewURL = url
-                            self.isLoading = false
-                        }
-                    }
-                } else {
+                guard let url = try await provider.fetchPreviewData(for: file) else {
+                    throw NSError(domain: "PreviewError", code: 0, userInfo: [NSLocalizedDescriptionKey: "无法从手机拉取文件"])
+                }
+                
+                if Task.isCancelled { return }
+                
+                try await handleLoadedFile(url, isVideo: file.isVideo)
+            } catch {
+                if !Task.isCancelled {
                     await MainActor.run {
-                        self.errorMessage = "无法从手机拉取文件"
+                        self.errorMessage = error.localizedDescription
                         self.isLoading = false
                     }
                 }
-            } catch {
-                print("PreviewPane: Task Failed: \(error)")
-                await MainActor.run {
-                    self.errorMessage = "加载失败: \(error.localizedDescription)"
-                    self.isLoading = false
-                }
             }
         }
+    }
+    
+    @MainActor
+    private func handleLoadedFile(_ url: URL, isVideo: Bool) async throws {
+        if isVideo {
+            let asset = AVAsset(url: url)
+            let isPlayable = try await asset.load(.isPlayable)
+            if isPlayable {
+                self.player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+                self.previewURL = url
+            } else {
+                self.errorMessage = "视频文件不可播放或格式不支持"
+            }
+        } else {
+            if let _ = NSImage(contentsOf: url) {
+                self.previewURL = url
+            } else {
+                self.errorMessage = "图片解析失败"
+            }
+        }
+        self.isLoading = false
     }
 }
