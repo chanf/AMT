@@ -114,10 +114,20 @@ struct FileBrowserView: View {
             }
             Spacer()
             if device.connectionType == .adb {
-                Button(action: launchScrcpy) {
-                    Label("屏幕镜像", systemImage: "display")
+                HStack(spacing: 12) {
+                    // Only show Wireless button if it's currently a USB connection (no IP port in serial)
+                    if !device.serial.contains(":") {
+                        Button(action: enableWireless) {
+                            Label("无线管理", systemImage: "wifi")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    
+                    Button(action: launchScrcpy) {
+                        Label("屏幕镜像", systemImage: "display")
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
-                .buttonStyle(.borderedProminent)
             }
         }
         .padding()
@@ -286,6 +296,26 @@ struct FileBrowserView: View {
         let provider = getProvider()
         for file in files {
             transferManager.copyToLocal(file: file, provider: provider)
+        }
+    }
+
+    func enableWireless() {
+        message = "正在切换无线模式..."
+        let provider = getProvider() as? ADBFileProvider
+        Task {
+            do {
+                let output = try await provider?.enableWirelessADB()
+                await MainActor.run {
+                    self.message = "无线模式已开启: \(output ?? "")"
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                        self.message = nil
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.message = "开启失败: \(error.localizedDescription)"
+                }
+            }
         }
     }
 

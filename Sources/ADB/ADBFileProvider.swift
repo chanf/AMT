@@ -91,6 +91,38 @@ class ADBFileProvider: FileProvider {
         _ = try await runADB(args: ["-s", device.serial, "shell", "pm", "uninstall", packageName])
     }
 
+    func enableWirelessADB() async throws -> String {
+        // 1. Switch to TCPIP mode
+        _ = try await runADB(args: ["-s", device.serial, "tcpip", "5555"])
+        
+        // 2. Wait a bit for the device to restart ADB daemon
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        
+        // 3. Get IP Address
+        let ip = try await getIPAddress()
+        
+        // 4. Connect
+        return try await ADBDeviceManager.runADB(args: ["connect", "\(ip):5555"])
+    }
+
+    private func getIPAddress() async throws -> String {
+        // Try multiple methods to get IP
+        let output = try await runADB(args: ["-s", device.serial, "shell", "ip", "addr", "show", "wlan0"])
+        // Look for: inet 192.168.1.10/24 ...
+        let lines = output.components(separatedBy: .newlines)
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("inet ") {
+                let parts = trimmed.components(separatedBy: .whitespaces)
+                if parts.count >= 2 {
+                    let ipWithSubnet = parts[1]
+                    return ipWithSubnet.components(separatedBy: "/")[0]
+                }
+            }
+        }
+        throw NSError(domain: "ADBError", code: 2, userInfo: [NSLocalizedDescriptionKey: "无法获取手机 IP 地址，请检查 Wi-Fi 是否连接"])
+    }
+
     func fetchAppDetails(app: AndroidApp) async throws -> AndroidApp {
         var updatedApp = app
         let packageName = app.packageName

@@ -3,6 +3,7 @@ import SwiftUI
 enum ViewMode {
     case fileBrowser
     case appManager
+    case networkManager
 }
 
 struct MainView: View {
@@ -24,22 +25,28 @@ struct MainView: View {
                     if viewMode == .fileBrowser {
                         FileBrowserView(device: device, externalTargetPath: $targetPath, selectedFileIDs: $selectedFileIDs)
                             .id(device.id)
-                    } else {
+                    } else if viewMode == .appManager {
                         if let provider = getProvider(for: device) {
                             AppManagerView(device: device, provider: provider, selectedAppIDs: $selectedAppIDs)
                                 .id("\(device.id)-apps")
                         }
+                    } else {
+                        NetworkManagerView()
                     }
                 }
                 .animation(.default, value: viewMode)
             } else {
-                VStack(spacing: 20) {
-                    AppIcon(size: 100)
-                    VStack(spacing: 8) {
-                        Text("选择一个设备")
-                            .font(.title2)
-                        Text("通过 USB 线连接安卓设备以开始浏览")
-                            .foregroundColor(.secondary)
+                if viewMode == .networkManager {
+                    NetworkManagerView()
+                } else {
+                    VStack(spacing: 20) {
+                        AppIcon(size: 100)
+                        VStack(spacing: 8) {
+                            Text("选择一个设备")
+                                .font(.title2)
+                            Text("通过 USB 线连接安卓设备以开始浏览")
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
             }
@@ -100,6 +107,9 @@ struct DeviceSidebar: View {
                         }
                     }
                     .tag(device as AndroidDevice?)
+                    .simultaneousGesture(TapGesture().onEnded {
+                        viewMode = .fileBrowser
+                    })
                 }
             }
 
@@ -138,6 +148,15 @@ struct DeviceSidebar: View {
                     }
                     .buttonStyle(.plain)
                 }
+            }
+            
+            Section("网络连接") {
+                Button {
+                    viewMode = .networkManager
+                } label: {
+                    Label("远程管理", systemImage: "network")
+                }
+                .buttonStyle(.plain)
             }
         }
         .navigationTitle("安卓设备")
