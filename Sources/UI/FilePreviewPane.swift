@@ -27,6 +27,7 @@ struct FilePreviewPane: View {
     @State private var isLoading = false
     @State private var errorMessage: String? = nil
     @State private var loadingTask: Task<Void, Never>? = nil
+    @State private var videoAspectRatio: CGFloat? = nil
 
     var body: some View {
         VStack {
@@ -43,10 +44,9 @@ struct FilePreviewPane: View {
                                 Image(systemName: file.isDirectory ? "folder.fill" : "doc.fill")
                                     .font(.system(size: 80))
                                     .foregroundColor(file.isDirectory ? .blue : .secondary)
-                                    .padding(.top, 40)
+                                    .padding(.vertical, 60)
                             }
                         }
-                        .frame(height: 250)
                         
                         // File info
                         VStack(spacing: 8) {
@@ -106,6 +106,7 @@ struct FilePreviewPane: View {
         ZStack {
             if isLoading {
                 ProgressView()
+                    .frame(height: 200)
             } else if let url = previewURL, let nsImage = NSImage(contentsOf: url) {
                 Image(nsImage: nsImage)
                     .resizable()
@@ -115,6 +116,7 @@ struct FilePreviewPane: View {
                     .shadow(radius: 4)
             } else if let error = errorMessage {
                 errorView(error)
+                    .frame(height: 200)
             }
         }
     }
@@ -129,12 +131,15 @@ struct FilePreviewPane: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
+                .frame(height: 200)
             } else if let player = player {
                 NativeVideoPlayer(player: player)
+                    .aspectRatio(videoAspectRatio ?? 16/9, contentMode: .fit)
                     .cornerRadius(8)
                     .padding()
             } else if let error = errorMessage {
                 errorView(error)
+                    .frame(height: 200)
             }
         }
     }
@@ -164,6 +169,7 @@ struct FilePreviewPane: View {
         player?.pause()
         player = nil
         previewURL = nil
+        videoAspectRatio = nil
     }
     
     private func loadPreview(for file: AndroidFile?) {
@@ -199,6 +205,18 @@ struct FilePreviewPane: View {
             let asset = AVAsset(url: url)
             let isPlayable = try await asset.load(.isPlayable)
             if isPlayable {
+                // Calculate aspect ratio
+                if let track = try await asset.loadTracks(withMediaType: .video).first {
+                    let size = try await track.load(.naturalSize)
+                    let transform = try await track.load(.preferredTransform)
+                    let displaySize = size.applying(transform)
+                    let width = abs(displaySize.width)
+                    let height = abs(displaySize.height)
+                    if height > 0 {
+                        self.videoAspectRatio = width / height
+                    }
+                }
+                
                 self.player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
                 self.previewURL = url
             } else {
