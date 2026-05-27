@@ -108,7 +108,24 @@ struct FileBrowserView: View {
                 .listStyle(.inset)
             }
         }
-        .background(isDropTargeted ? Color.accentColor.opacity(0.1) : Color.clear)
+        .contentShape(Rectangle()) // Make the whole VStack tappable/droppable
+        .overlay(
+            Group {
+                if isDropTargeted {
+                    ZStack {
+                        Color.accentColor.opacity(0.15)
+                        VStack {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 50))
+                            Text("拖拽至此上传到当前目录")
+                                .font(.headline)
+                        }
+                        .foregroundColor(.accentColor)
+                    }
+                    .allowsHitTesting(false)
+                }
+            }
+        )
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
             return true
@@ -151,22 +168,42 @@ struct FileBrowserView: View {
     }
 
     func handleDrop(providers: [NSItemProvider]) {
+        print("Drop: Received \(providers.count) providers")
         let group = DispatchGroup()
         var urls: [URL] = []
         
         for provider in providers {
+            print("Drop: Provider types: \(provider.registeredTypeIdentifiers)")
             group.enter()
-            _ = provider.loadObject(ofClass: URL.self) { url, error in
+            
+            // Try loading as URL object first
+            provider.loadObject(ofClass: URL.self) { url, error in
                 if let url = url {
+                    print("Drop: Successfully loaded URL: \(url.path)")
                     urls.append(url)
+                } else {
+                    print("Drop: Failed to load as URL: \(String(describing: error))")
+                    
+                    // Fallback: try loading data representation of fileURL
+                    provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
+                        if let url = item as? URL {
+                            print("Drop: Fallback loaded URL: \(url.path)")
+                            urls.append(url)
+                        } else if let data = item as? Data, let path = String(data: data, encoding: .utf8), let url = URL(string: path) {
+                            print("Drop: Fallback loaded from data: \(url.path)")
+                            urls.append(url)
+                        }
+                    }
                 }
                 group.leave()
             }
         }
         
         group.notify(queue: .main) {
+            print("Drop: Total URLs collected: \(urls.count)")
             if !urls.isEmpty {
                 transferManager.uploadToDevice(localURLs: urls, remotePath: currentPath, provider: getProvider()) {
+                    print("Drop: Upload sequence completed")
                     self.refresh()
                 }
             }
