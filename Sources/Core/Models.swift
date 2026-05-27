@@ -11,6 +11,11 @@ struct AndroidDevice: Identifiable, Hashable {
         case adb
         case mtp
     }
+
+    var isWireless: Bool {
+        // Wireless ADB devices usually have a serial like "192.168.1.10:5555"
+        return serial.contains(":") && connectionType == .adb
+    }
 }
 
 /// Represents a file or folder on an Android device.

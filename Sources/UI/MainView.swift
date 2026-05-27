@@ -98,12 +98,12 @@ struct DeviceSidebar: View {
                         Label {
                             VStack(alignment: .leading) {
                                 Text(device.model)
-                                Text(device.connectionType.rawValue.uppercased())
+                                Text(device.isWireless ? "WI-FI" : device.connectionType.rawValue.uppercased())
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
                         } icon: {
-                            Image(systemName: "phone.fill")
+                            Image(systemName: device.isWireless ? "wifi" : "phone.fill")
                         }
                     }
                     .tag(device as AndroidDevice?)
