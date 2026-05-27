@@ -104,7 +104,7 @@ struct FileBrowserView: View {
                 Text(device.model)
                     .font(.headline)
                 HStack(spacing: 12) {
-                    Label(device.connectionType.rawValue.uppercased(), systemImage: "cable.connector")
+                    Label(device.isWireless ? "WI-FI" : device.connectionType.rawValue.uppercased(), systemImage: device.isWireless ? "wifi" : "cable.connector")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                     Label("S/N: \(device.serial)", systemImage: "number")
@@ -115,10 +115,14 @@ struct FileBrowserView: View {
             Spacer()
             if device.connectionType == .adb {
                 HStack(spacing: 12) {
-                    // Only show Wireless button if it's currently a USB connection (no IP port in serial)
                     if !device.serial.contains(":") {
                         Button(action: enableWireless) {
                             Label("无线管理", systemImage: "wifi")
+                        }
+                        .buttonStyle(.bordered)
+                    } else {
+                        Button(action: disableWireless) {
+                            Label("关闭无线", systemImage: "wifi.slash")
                         }
                         .buttonStyle(.bordered)
                     }
@@ -308,13 +312,29 @@ struct FileBrowserView: View {
                 await MainActor.run {
                     self.message = "无线模式已开启: \(output ?? "")"
                     DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                        self.message = nil
+                        if self.message?.hasPrefix("无线模式已开启") == true { self.message = nil }
                     }
                 }
             } catch {
+                await MainActor.run { self.message = "开启失败: \(error.localizedDescription)" }
+            }
+        }
+    }
+
+    func disableWireless() {
+        message = "正在关闭无线模式..."
+        let provider = getProvider() as? ADBFileProvider
+        Task {
+            do {
+                try await provider?.disableWirelessADB()
                 await MainActor.run {
-                    self.message = "开启失败: \(error.localizedDescription)"
+                    self.message = "无线模式已关闭，连接即将断开"
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                        if self.message == "无线模式已关闭，连接即将断开" { self.message = nil }
+                    }
                 }
+            } catch {
+                await MainActor.run { self.message = "关闭失败: \(error.localizedDescription)" }
             }
         }
     }

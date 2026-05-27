@@ -8,8 +8,10 @@ class DeviceMonitor: ObservableObject {
     @Published var hardwareInfo = HardwareInfo()
     @Published var batteryInfo = BatteryInfo()
     @Published var storageInfo = StorageInfo()
+    @Published var thermalInfo = ThermalInfo()
     @Published var cpuHistory: [PerformancePoint] = []
     @Published var ramHistory: [PerformancePoint] = []
+    @Published var thermalHistory: [PerformancePoint] = []
     
     private var timer: AnyCancellable?
     private let historyLimit = 30
@@ -78,6 +80,7 @@ class DeviceMonitor: ObservableObject {
             group.addTask { await self.pollRAM() }
             group.addTask { await self.pollStorage() }
             group.addTask { await self.pollBattery() }
+            group.addTask { await self.pollThermal() }
         }
     }
     
@@ -146,8 +149,7 @@ class DeviceMonitor: ObservableObject {
             if lines.count >= 2 {
                 let parts = lines[1].components(separatedBy: .whitespaces).filter { !$0.isEmpty }
                 if parts.count >= 4 {
-                    // df output usually: Filesystem Size Used Free BlkSize
-                    // But toybox df is: Filesystem 1K-blocks Used Available Use% Mounted on
+                    // df output usually: Filesystem 1K-blocks Used Available Use% Mounted on
                     let totalK = Int64(parts[1]) ?? 0
                     let usedK = Int64(parts[2]) ?? 0
                     let availK = Int64(parts[3]) ?? 0
@@ -183,7 +185,7 @@ class DeviceMonitor: ObservableObject {
                         let s = Int(val) ?? 1
                         info.status = (s == 2) ? "正在充电" : (s == 5) ? "已充满" : "未充电"
                     case "temperature": info.temperature = (Double(val) ?? 0) / 10.0
-                    case "health": info.health = "良好" // Simplified
+                    case "health": info.health = "良好"
                     default: break
                     }
                 }
@@ -191,6 +193,21 @@ class DeviceMonitor: ObservableObject {
             self.batteryInfo = info
         } catch {
             print("Monitor: Battery poll error: \(error)")
+        }
+    }
+    
+    private func pollThermal() async {
+        do {
+            // Attempt to read CPU/System temp from thermal_zone0
+            let cpuTempRaw = try await runADB(["shell", "cat", "/sys/class/thermal/thermal_zone0/temp"])
+            let temp = (Double(cpuTempRaw.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0) / 1000.0
+            
+            if temp > 0 {
+                self.thermalInfo.cpuTemp = temp
+                updateHistory(&thermalHistory, value: temp)
+            }
+        } catch {
+            print("Monitor: Thermal poll error: \(error)")
         }
     }
     

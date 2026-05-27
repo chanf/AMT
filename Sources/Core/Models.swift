@@ -87,6 +87,12 @@ struct BatteryInfo: Hashable {
     var status: String = "Unknown"
     var health: String = "Good"
     var temperature: Double = 0.0
+    var cpuTemperature: Double = 0.0 // Add CPU temperature here or in ThermalInfo
+}
+
+struct ThermalInfo: Hashable {
+    var systemTemp: Double = 0.0
+    var cpuTemp: Double = 0.0
 }
 
 struct StorageInfo: Hashable {

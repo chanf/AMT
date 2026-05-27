@@ -25,7 +25,12 @@ struct DevicePerformanceView: View {
                 }
                 .frame(height: 250)
                 
-                // 3. Storage & Battery
+                // 3. Thermal Monitoring
+                thermalSection
+                
+                Divider()
+                
+                // 4. Storage & Battery
                 HStack(alignment: .top, spacing: 20) {
                     storageCard
                     batteryCard
@@ -79,6 +84,31 @@ struct DevicePerformanceView: View {
         .background(Color.secondary.opacity(0.05))
         .cornerRadius(10)
     }
+
+    private var thermalSection: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            HStack {
+                Text("温度监控")
+                    .font(.headline)
+                    .foregroundColor(.secondary)
+                Spacer()
+                if monitor.thermalInfo.cpuTemp > 0 {
+                    Text("当前系统温: \(String(format: "%.1f", monitor.thermalInfo.cpuTemp))°C")
+                        .font(.subheadline.bold())
+                        .foregroundColor(tempColor(monitor.thermalInfo.cpuTemp))
+                }
+            }
+            
+            chartCard(title: "实时温度轨迹", points: monitor.thermalHistory, color: .orange, unit: "°C", range: 20...100)
+                .frame(height: 200)
+        }
+    }
+
+    private func tempColor(_ temp: Double) -> Color {
+        if temp < 45 { return .green }
+        if temp < 60 { return .orange }
+        return .red
+    }
     
     private func chartCard(title: String, points: [PerformancePoint], color: Color, unit: String, range: ClosedRange<Double>) -> some View {
         VStack(alignment: .leading) {
@@ -126,7 +156,6 @@ struct DevicePerformanceView: View {
             Text("内部存储空间").font(.headline)
             
             HStack(spacing: 30) {
-                // Custom Ring Chart (macOS 13 compat)
                 ZStack {
                     Circle()
                         .stroke(Color.secondary.opacity(0.1), lineWidth: 20)

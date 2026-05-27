@@ -92,6 +92,15 @@ struct DeviceSidebar: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
+                    Spacer()
+                    Button(action: {
+                        deviceManager.startDiscovery()
+                    }) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.plain)
+                    .help("刷新设备列表")
                 }
                 .padding(.vertical, 8)
             }

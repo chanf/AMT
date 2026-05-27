@@ -105,6 +105,12 @@ class ADBFileProvider: FileProvider {
         return try await ADBDeviceManager.runADB(args: ["connect", "\(ip):5555"])
     }
 
+    func disableWirelessADB() async throws {
+        // Switch adb daemon back to USB mode. 
+        // This will immediately drop the current wireless connection.
+        _ = try await runADB(args: ["-s", device.serial, "usb"])
+    }
+
     private func getIPAddress() async throws -> String {
         // Try multiple methods to get IP
         let output = try await runADB(args: ["-s", device.serial, "shell", "ip", "addr", "show", "wlan0"])
