@@ -1,5 +1,6 @@
 import SwiftUI
 import AVKit
+import PDFKit
 
 /// A more stable VideoPlayer wrapper for macOS using AVPlayerView
 struct NativeVideoPlayer: NSViewRepresentable {
@@ -18,6 +19,23 @@ struct NativeVideoPlayer: NSViewRepresentable {
     }
 }
 
+/// A standard PDFView wrapper for macOS
+struct NativePDFView: NSViewRepresentable {
+    let document: PDFDocument
+    
+    func makeNSView(context: Context) -> PDFView {
+        let view = PDFView()
+        view.document = document
+        view.autoScales = true
+        view.displayMode = .singlePageContinuous
+        return view
+    }
+    
+    func updateNSView(_ nsView: PDFView, context: Context) {
+        nsView.document = document
+    }
+}
+
 struct FilePreviewPane: View {
     let file: AndroidFile?
     let provider: FileProvider?
@@ -29,6 +47,7 @@ struct FilePreviewPane: View {
     @State private var loadingTask: Task<Void, Never>? = nil
     @State private var videoAspectRatio: CGFloat? = nil
     @State private var textContent: String? = nil
+    @State private var pdfDocument: PDFDocument? = nil
 
     var body: some View {
         VStack {
@@ -43,6 +62,8 @@ struct FilePreviewPane: View {
                                 videoPreviewSection(for: file)
                             } else if file.isAudio {
                                 audioPreviewSection(for: file)
+                            } else if file.isPDF {
+                                pdfPreviewSection(for: file)
                             } else if file.isText {
                                 textPreviewSection(for: file)
                             } else {
@@ -100,7 +121,7 @@ struct FilePreviewPane: View {
             Image(systemName: "info.circle")
                 .font(.system(size: 48))
                 .foregroundColor(.secondary)
-            Text("双击图片、视频、音频或文本查看预览")
+            Text("双击图片、视频、音频、PDF 或文本查看预览")
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -179,6 +200,29 @@ struct FilePreviewPane: View {
     }
 
     @ViewBuilder
+    private func pdfPreviewSection(for file: AndroidFile) -> some View {
+        ZStack {
+            if isLoading {
+                VStack {
+                    ProgressView()
+                    Text("正在拉取 PDF...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .frame(height: 300)
+            } else if let doc = pdfDocument {
+                NativePDFView(document: doc)
+                    .frame(height: 400)
+                    .cornerRadius(8)
+                    .padding()
+            } else if let error = errorMessage {
+                errorView(error)
+                    .frame(height: 200)
+            }
+        }
+    }
+
+    @ViewBuilder
     private func textPreviewSection(for file: AndroidFile) -> some View {
         ZStack {
             if isLoading {
@@ -226,13 +270,14 @@ struct FilePreviewPane: View {
         previewURL = nil
         videoAspectRatio = nil
         textContent = nil
+        pdfDocument = nil
     }
     
     private func loadPreview(for file: AndroidFile?) {
         cancelLoading()
         errorMessage = nil
         
-        guard let file = file, (file.isImage || file.isVideo || file.isText || file.isAudio), let provider = provider else { return }
+        guard let file = file, (file.isImage || file.isVideo || file.isText || file.isAudio || file.isPDF), let provider = provider else { return }
         
         isLoading = true
         loadingTask = Task {
@@ -261,7 +306,6 @@ struct FilePreviewPane: View {
             let asset = AVAsset(url: url)
             let isPlayable = try await asset.load(.isPlayable)
             if isPlayable {
-                // Calculate aspect ratio only for video
                 if file.isVideo, let track = try await asset.loadTracks(withMediaType: .video).first {
                     let size = try await track.load(.naturalSize)
                     let transform = try await track.load(.preferredTransform)
@@ -284,8 +328,14 @@ struct FilePreviewPane: View {
             } else {
                 self.errorMessage = "图片解析失败"
             }
+        } else if file.isPDF {
+            if let doc = PDFDocument(url: url) {
+                self.pdfDocument = doc
+                self.previewURL = url
+            } else {
+                self.errorMessage = "PDF 解析失败"
+            }
         } else if file.isText {
-            // Read first 512KB to avoid memory issues
             let maxReadBytes = 512 * 1024
             let data = try Data(contentsOf: url)
             let contentToRead = data.count > maxReadBytes ? data.subdata(in: 0..<maxReadBytes) : data

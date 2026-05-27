@@ -55,6 +55,10 @@ struct AndroidFile: Identifiable, Hashable {
         return audioExtensions.contains(ext)
     }
 
+    var isPDF: Bool {
+        return (name as NSString).pathExtension.lowercased() == "pdf"
+    }
+
     var isAPK: Bool {
         return (name as NSString).pathExtension.lowercased() == "apk"
     }
