@@ -75,8 +75,9 @@ struct FileBrowserView: View {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(files, selection: $selectedFile) { file in
+                List(files) { file in
                     FileRow(file: file, progress: transferManager.activeTransfers[file.path])
+                        .contentShape(Rectangle())
                         .contextMenu {
                             if !file.isDirectory {
                                 Button {
@@ -93,10 +94,14 @@ struct FileBrowserView: View {
                         }
                         .onTapGesture(count: 2) {
                             if file.isDirectory {
+                                selectedFile = nil
                                 navigate(to: file.path)
+                            } else if file.isImage {
+                                selectedFile = file
+                            } else {
+                                selectedFile = nil
                             }
                         }
-                        .tag(file)
                 }
                 .listStyle(.inset)
             }
