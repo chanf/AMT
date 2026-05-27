@@ -4,6 +4,7 @@ enum ViewMode {
     case fileBrowser
     case appManager
     case networkManager
+    case performance
 }
 
 struct MainView: View {
@@ -30,6 +31,9 @@ struct MainView: View {
                             AppManagerView(device: device, provider: provider, selectedAppIDs: $selectedAppIDs)
                                 .id("\(device.id)-apps")
                         }
+                    } else if viewMode == .performance {
+                        DevicePerformanceView(device: device)
+                            .id("\(device.id)-performance")
                     } else {
                         NetworkManagerView()
                     }
@@ -114,6 +118,22 @@ struct DeviceSidebar: View {
             }
 
             if selectedDevice != nil {
+                Section("监控与管理") {
+                    Button {
+                        viewMode = .performance
+                    } label: {
+                        Label("性能面板", systemImage: "chart.bar.xaxis")
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        viewMode = .appManager
+                    } label: {
+                        Label("应用列表", systemImage: "apps.iphone.badge.plus")
+                    }
+                    .buttonStyle(.plain)
+                }
+
                 Section("快捷连接") {
                     Button {
                         viewMode = .fileBrowser
@@ -136,15 +156,6 @@ struct DeviceSidebar: View {
                         targetPath = "/sdcard"
                     } label: {
                         Label("内部存储", systemImage: "internaldrive")
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                Section("应用管理") {
-                    Button {
-                        viewMode = .appManager
-                    } label: {
-                        Label("应用列表", systemImage: "apps.iphone.badge.plus")
                     }
                     .buttonStyle(.plain)
                 }

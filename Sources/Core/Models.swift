@@ -70,3 +70,37 @@ struct AndroidApp: Identifiable, Hashable {
     var versionCode: String? = nil
     var iconURL: URL? = nil
 }
+
+// MARK: - Performance Panel Models
+
+struct HardwareInfo: Hashable {
+    var brand: String = "Unknown"
+    var model: String = "Unknown"
+    var androidVersion: String = "Unknown"
+    var sdkVersion: String = "Unknown"
+    var resolution: String = "Unknown"
+    var cpuArch: String = "Unknown"
+}
+
+struct BatteryInfo: Hashable {
+    var level: Int = 0
+    var status: String = "Unknown"
+    var health: String = "Good"
+    var temperature: Double = 0.0
+}
+
+struct StorageInfo: Hashable {
+    var total: Int64 = 0
+    var used: Int64 = 0
+    var available: Int64 = 0
+    
+    var usedPercent: Double {
+        total > 0 ? Double(used) / Double(total) : 0
+    }
+}
+
+struct PerformancePoint: Identifiable, Hashable {
+    let id = UUID()
+    let timestamp: Date
+    let value: Double
+}
